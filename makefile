@@ -1,7 +1,8 @@
 # Shell
 SHELL := /bin/bash
 # Variables
-__version__ = 2024-10-24-001
+application_name = mikeryanie
+__version__ = 2024-10-25-001
 
 PYTHON = python3
 PIP = $(PYTHON) -m pip
@@ -67,22 +68,19 @@ docker-login:  # Login to docker hub
 	docker login
 
 docker-run:  # Run docker container
-	docker run -p 5000:5000 dsg:$(__version__)
+	docker run -p 5000:5000 mikeryanie:$(__version__)
 
 docker-build:  # Build docker image
-	docker build --no-cache -t dsg:$(__version__) .
+	docker build --no-cache -t $(application_name):$(__version__) .
 
 docker-push:  # Push beta test image to docker hub
-	docker tag dsg:$(__version__) mikeryan56/dsg:$(__version__)
-	docker push mikeryan56/dsg:$(__version__)
+	docker tag $(application_name):$(__version__) mikeryan56/$(application_name):$(__version__)
+	docker push mikeryan56/$(application_name):$(__version__)
 
 docker-all: docker-build docker-push 
 
-bump-calver-beta:  # Bump the beta version number in the Makefile
-	python3 /home/mike/dsg/scripts/calver_update.py --build --beta
-
-bump-calver:  # Bump the version number in the Makefile
-	python3 /home/mike/dsg/scripts/calver_update.py --build
+bump: # Bump the version number
+	bumpcalver --build
 
 flake8:  # Run flake8 and output report
 	flake8 --tee . > _flake8Report.txt
@@ -108,7 +106,7 @@ run-dev:  # Run the FastAPI application in development mode with hot-reloading
 # uvicorn ${SERVICE_PATH}.main:app --port ${PORT} --workers ${WORKERS} --log-level ${LOG_LEVEL}
 
 run-prd:  # Run the FastAPI application in production mode
-	uvicorn ${SERVICE_PATH}.main:app --port 5000 --workers 1 --log-level debug
+	uvicorn ${SERVICE_PATH}.main:app --port 5000 --workers 4 --log-level debug
 
 run-gdev:  # Run the FastAPI application in development mode with hot-reloading using granian
 	granian --interface asgi ${SERVICE_PATH}.main:app --port ${PORT} --reload --log-level ${LOG_LEVEL}
@@ -120,8 +118,8 @@ run-gprd:  # Run the FastAPI application in production mode using granian
 test:  # Run tests and generate coverage report
 	pre-commit run -a
 	PYTHONPATH=. pytest
-	sed -i 's|<source>/workspaces/dsg</source>|<source>/github/workspace/dsg</source>|' /workspaces/dsg/coverage.xml
-	genbadge coverage -i /workspaces/dsg/coverage.xml
+	sed -i 's|<source>/workspaces/mrie</source>|<source>/github/workspace/mrie</source>|' /workspaces/mrie/coverage.xml
+	genbadge coverage -i /workspaces/mrie/coverage.xml
 
 ruff: ## Format Python code with Ruff
 	ruff check --fix --exit-non-zero-on-fix --show-fixes $(SERVICE_PATH)
