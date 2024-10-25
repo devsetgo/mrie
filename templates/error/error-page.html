@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block title %}MikeRyan.ie{% endblock %}
+
+{% block content %}
+<div class="contact-info">
+    <h1>Error: {{error_code}}</h1>
+    <h6>
+        <p>Description: {{description}}</p>
+        <p>Extended Description: {{extended_description}}</p>
+        <p>Learn More from <a href="{{link}}">Mozilla</a> or back to the <a href="/">main page</a></p>
+    </h6>
+    <p>
+        <small>Copyright &copy; Mike Ryan 1997 -
+            <script>
+                var CurrentYear = new Date().getFullYear()
+                document.write(CurrentYear)
+            </script>
+        </small>
+    </p>
+</div>
+{% endblock %}

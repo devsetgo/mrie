@@ -1,0 +1,13 @@
+alembic==1.13.3 # Vulnerabilities: None
+devsetgo-lib[all]==2024.10.20.1 # Vulnerabilities: None
+fastapi[all]==0.115.3 # Vulnerabilities: None
+fastapi[all]==0.115.3 # From 0.115.0 | Vulnerabilities: None
+granian==1.6.1 # From 1.6.0 | Vulnerabilities: None
+pydantic[email]==2.9.2 # Vulnerabilities: None
+silly==1.1.0 # Vulnerabilities: None
+silly==1.1.0 # Vulnerabilities: None
+tqdm==4.66.5 # Vulnerabilities: None
+tqdm==4.66.5 # Vulnerabilities: None
+unsync==1.4.0 # Vulnerabilities: None
+unsync==1.4.0 # Vulnerabilities: None
+

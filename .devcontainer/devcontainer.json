@@ -1,0 +1,86 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/postgres
+{
+	"name": "MikeRyan.ie",
+	"dockerComposeFile": "docker-compose.yml",
+	"service": "app",
+	"workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+	"runArgs": [
+		"--init",
+		"--privileged",
+		"-v",
+		"/var/run/docker.sock:/var/run/docker.sock"
+	],
+	"features": {
+		"ghcr.io/devcontainers/features/node:1": {
+			"nodeGypDependencies": true,
+			"version": "18"
+		},
+		"ghcr.io/devcontainers-contrib/features/vue-cli:2": {
+			"version": "latest"
+		}
+	},
+	"forwardPorts": [
+		5000,
+		5432,
+		32080
+	],
+	"postCreateCommand": "pip3 install --upgrade pip setuptools wheel && pip3 install -r requirements/dev.txt && sudo chmod 666 /var/run/docker.sock",
+	// "postStartCommand": "",
+	"customizations": {
+		"vscode": {
+			"settings": {
+				"python.defaultInterpreterPath": "/usr/local/bin/python",
+				"python.formatting.autopep8Path": "/usr/local/py-utils/bin/autopep8",
+				"python.formatting.blackPath": "/usr/local/py-utils/bin/black",
+				"python.formatting.yapfPath": "/usr/local/py-utils/bin/yapf",
+				"python.testing.pytestPath": "/usr/local/py-utils/bin/pytest"
+			},
+			"extensions": [
+				"GitHub.copilot",
+				"GitHub.copilot-chat",
+				"stkb.rewrap",
+				"tamasfe.even-better-toml",
+				"ms-vscode.cpptools-extension-pack",
+				"ms-vscode.cpptools",
+				"aaron-bond.better-comments",
+				"alefragnani.project-manager",
+				"dbaeumer.vscode-eslint",
+				"DavidAnson.vscode-markdownlint",
+				"DotJoshJohnson.xml",
+				"donjayamanne.githistory",
+				"ecmel.vscode-html-css",
+				"esbenp.prettier-vscode",
+				"george-alisson.html-preview-vscode",
+				"Gruntfuggly.todo-tree",
+				"hnw.vscode-auto-open-markdown-preview",
+				"kamikillerto.vscode-colorize",
+				"mikestead.dotenv",
+				"ms-python.isort",
+				"ms-python.pylint",
+				"ms-python.python",
+				"ms-azuretools.vscode-docker",
+				"ms-toolsai.jupyter",
+				"ms-toolsai.jupyter-keymap",
+				"ms-vscode.makefile-tools",
+				"njpwerner.autodocstring",
+				"oderwat.indent-rainbow",
+				"peakchen90.open-html-in-browser",
+				"redhat.vscode-yaml",
+				"streetsidesoftware.code-spell-checker",
+				"Vue.volar",
+				"waderyan.gitblame",
+				"wayou.vscode-todo-highlight",
+				"wholroyd.jinja",
+				"wix.vscode-import-cost",
+				"supperchong.pretty-json",
+				"ms-azuretools.vscode-docker",
+				"ms-kubernetes-tools.vscode-kubernetes-tools",
+				"ms-vsliveshare.vsliveshare",
+				"ms-python.black-formatter"
+			]
+		}
+	}
+	// Uncomment to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
+	// "remoteUser": "vscode"
+}
