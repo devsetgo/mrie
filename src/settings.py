@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import secrets  # For generating secure random numbers
 from datetime import datetime  # A Python library used for working with dates and times
 from enum import (

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from contextlib import asynccontextmanager
 
 from dsg_lib.common_functions import logging_config
@@ -55,7 +56,11 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 from src.app_routes import create_routes
 from src.resources import templates
+from src.app_middleware import add_middleware
 
+# add middleware and routes to the application
+add_middleware(app)
+# create routes
 create_routes(app)
 
 

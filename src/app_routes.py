@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import time
 from contextlib import asynccontextmanager
 from typing import Any, Dict, NoReturn

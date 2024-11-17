@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from contextlib import asynccontextmanager
 
 from dsg_lib.common_functions import logging_config
