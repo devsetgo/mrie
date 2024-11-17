@@ -1,0 +1,12 @@
+-r prd.txt
+autoflake==2.3.1 # Vulnerabilities: None
+autopep8==2.3.1 # Vulnerabilities: None
+black==24.10.0 # Vulnerabilities: None
+bump-pydantic==0.8.0 # Vulnerabilities: None
+bumpcalver==2024.10.20.4 # From 2024.10.13 | Vulnerabilities: None
+genbadge[all]==1.1.1 # Vulnerabilities: None
+isort==5.13.2 # Vulnerabilities: None
+pre-commit==4.0.1 # Vulnerabilities: None
+pytest==8.3.3 # Vulnerabilities: None
+pytest-cov==5.0.0 # Vulnerabilities: None
+ruff==0.7.1 # From 0.7.0 | Vulnerabilities: None
