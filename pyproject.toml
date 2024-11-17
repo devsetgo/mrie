@@ -1,6 +1,6 @@
 [project]
 name = "MikeRyan.ie"
-version = "2024.10.25.1"
+version = "2024.11.17.1"
 requires-python = ">=3.11"
 description = "MikeRyan.ie website"
 readme = "README.md"

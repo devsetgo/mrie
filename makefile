@@ -2,7 +2,7 @@
 SHELL := /bin/bash
 # Variables
 application_name = mikeryanie
-__version__ = 2024-10-25-001
+__version__ = 2024-11-17-001
 
 PYTHON = python3
 PIP = $(PYTHON) -m pip
@@ -77,7 +77,7 @@ docker-push:  # Push beta test image to docker hub
 	docker tag $(application_name):$(__version__) mikeryan56/$(application_name):$(__version__)
 	docker push mikeryan56/$(application_name):$(__version__)
 
-docker-all: docker-build docker-push 
+docker-all: docker-build docker-push
 
 bump: # Bump the version number
 	bumpcalver --build
