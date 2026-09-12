@@ -1,0 +1,241 @@
+{% extends "base_app.html" %}
+{% block page_title %}| WebLinks{% endblock %}
+{% block page_stylesheet %}
+<!-- page stylesheets-->
+<style>
+    .modal {
+        display: none;
+        position: fixed;
+        z-index: 1;
+        padding-top: 60px;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        overflow: auto;
+        background-color: rgb(0, 0, 0);
+        background-color: rgba(0, 0, 0, 0.9);
+    }
+
+    .modal-content {
+        margin: auto;
+        display: block;
+        width: 90%;
+        max-width: 1000px;
+    }
+
+    .caption {
+        margin: auto;
+        display: block;
+        width: 80%;
+        max-width: 1000px;
+        text-align: center;
+        color: #ccc;
+        padding: 10px 0;
+        height: 150px;
+    }
+
+    .modal-content,
+    .caption {
+        -webkit-animation-name: zoom;
+        -webkit-animation-duration: 0.6s;
+        animation-name: zoom;
+        animation-duration: 0.6s;
+    }
+
+    @-webkit-keyframes zoom {
+        from {
+            -webkit-transform: scale(0)
+        }
+
+        to {
+            -webkit-transform: scale(1)
+        }
+    }
+
+    @keyframes zoom {
+        from {
+            transform: scale(0.1)
+        }
+
+        to {
+            transform: scale(1)
+        }
+    }
+
+    .close {
+        position: absolute;
+        top: 15px;
+        right: 35px;
+        color: #f1f1f1;
+        font-size: 40px;
+        font-weight: bold;
+        transition: 0.3s;
+    }
+
+    .close:hover,
+    .close:focus {
+        color: #bbb;
+        text-decoration: none;
+        cursor: pointer;
+    }
+
+    .close-btn {
+        display: block;
+        margin: 20px auto;
+        padding: 10px 20px;
+        background-color: #f1f1f1;
+        color: #000;
+        border: none;
+        cursor: pointer;
+        font-size: 16px;
+    }
+
+    .close-btn:hover {
+        background-color: #bbb;
+    }
+</style>
+{% endblock %}
+{% block page_breadcrumb %} WebLinks{% endblock %}
+{% block page_head_title %}WebLinks{% endblock %}
+{% block body %}
+<!-- Main content -->
+<div class="row">
+    <div class="col-12">
+        <div class="card" style="margin: 20px;">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h3 class="card-title mb-0">{{ weblink.title | title }}</h3>
+                <div class="d-flex align-items-center ms-auto">
+                    {% if request.session.roles and request.session.roles.web_links %}
+                    <a href="/weblinks/update/comment/{{weblink.pkid}}" class="btn btn-warning ms-2" title="Edit"><i
+                        class="fa-solid fa-pen-to-square fa-lg text-white"></i></a>
+                    {% endif %}
+                    {% if request.session.is_admin is true %}
+                    <a href="/weblinks/update/{{weblink.pkid}}" class="btn {{ 'btn-danger' if weblink.ai_fix else 'btn-success' }} ms-2"
+                        title="Send to AI Fix" hx-get="/weblinks/update/{{weblink.pkid}}"
+                        hx-indicator=".htmx-indicator">
+                        <i class="fa-solid fa-robot fa-lg text-white"></i>
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-12">
+                    <ul class="nav nav-tabs" id="myTab" role="tablist">
+                        <li class="nav-item">
+                            <a class="nav-link active" id="details-tab" data-bs-toggle="tab" href="#details"
+                                role="tab" aria-controls="details" aria-selected="true">Details</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" id="info-tab" data-bs-toggle="tab" href="#info" role="tab"
+                                aria-controls="info" aria-selected="false">
+                                {% if weblink.is_youtube %}YouTube Video{% else %}Website Image{% endif %}
+                            </a>
+                        </li>
+                    </ul>
+                    <div class="tab-content">
+                        <div class="tab-pane active" id="details" role="tabpanel" aria-labelledby="details-tab">
+                            <div class="row bg-body-secondary" style="padding: 20px; margin: 10px;">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label>URL:</label>
+                                        <p><a href="{{ weblink.url }}" target="_blank">{{ weblink.title | title
+                                                }}</a></p>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label>Summary:</label>
+                                        <p>{{ weblink.summary }}</p>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label>Comment:</label>
+                                        <p>{{ weblink.comment }}</p>
+                                    </div>
+                                    <div class="mb-3 d-flex align-items-center">
+                                        <label class="me-2">Link Status:</label>
+                                        <p class="mb-0">
+                                            {% if link_status %}
+                                            <i class="fa-solid fa-check" style="color: green;"
+                                                title="Link Working"></i>
+                                            {% else %}
+                                            <i class="fa-solid fa-times" style="color: red;"
+                                                title="Link Not Working"></i>
+                                            {% endif %}
+                                        </p>
+                                    </div>
+                                    <div class="mb-3 d-flex align-items-center">
+                                        <label class="me-2">Date Created:</label>
+                                        <p class="mb-0">{{ weblink.date_created }}</p>
+                                    </div>
+                                    <div class="mb-3 d-flex align-items-center">
+                                        <label class="me-2">Date Updated:</label>
+                                        <p class="mb-0">{{ weblink.date_updated }}</p>
+                                    </div>
+                                    <div class="mb-3 d-flex align-items-center">
+                                        <label class="me-2">Category:</label>
+                                        <p class="mb-0">{{ weblink.category }}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="tab-pane" id="info" role="tabpanel" aria-labelledby="info-tab">
+                            <div class="row bg-body-secondary" style="padding: 20px; margin: 10px;">
+                                <div class="col-md-12">
+                                    {% if weblink.is_youtube %}
+                                    <label>YouTube Video:</label>
+                                    <br>
+                                    <div class="embed-responsive embed-responsive-16by9">
+                                        <iframe class="embed-responsive-item"
+                                                src="{{ youtube_embed_url }}"
+                                                frameborder="0"
+                                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                                allowfullscreen>
+                                        </iframe>
+                                    </div>
+                                    {% else %}
+                                    <label>Website Image:</label>
+                                    <br>
+                                    {{page_image|safe}}
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-12">
+                    <div class="row bg-body-tertiary" style="padding: 20px; margin: 10px;">
+                        <!-- Additional content can go here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- The Modal -->
+<div id="myModal" class="modal">
+    <span class="close" onclick="closeModal()">&times;</span>
+    <img class="modal-content" id="modalImage">
+    <div class="caption" id="caption"></div>
+    <button class="close-btn" onclick="closeModal()">Close</button>
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+<!-- page scripts-->
+<script>
+    function openModal(img) {
+        var modal = document.getElementById("myModal");
+        var modalImg = document.getElementById("modalImage");
+        var captionText = document.getElementById("caption");
+        modal.style.display = "block";
+        modalImg.src = img.src;
+        captionText.innerHTML = img.alt;
+    }
+
+    function closeModal() {
+        var modal = document.getElementById("myModal");
+        modal.style.display = "none";
+    }
+</script>
+{% endblock %}

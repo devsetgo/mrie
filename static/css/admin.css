@@ -1,0 +1,62 @@
+/*
+ * Sidebar + top-navbar layout for the logged-in app shell (templates/base_app.html).
+ *
+ * Written from scratch against MDB UI Kit's own CSS custom properties
+ * (--mdb-*), not copied from any third-party admin template - MDBootstrap's
+ * free admin template (github.com/mdbootstrap/bootstrap-5-admin-template,
+ * state as of its Dec 2023 "v7" update) was used only as one-time layout
+ * inspiration (left sidebar + fixed top navbar). That repo has no version
+ * tags and is prone to large, infrequent rewrites, so nothing here is a
+ * vendored copy of its files - see PROJECT_STATUS.md for the reasoning.
+ * Using MDB's own CSS variables means this file inherits dark mode
+ * automatically via [data-mdb-theme=dark] without needing separate
+ * dark-mode rules of its own.
+ */
+
+:root {
+  --app-sidebar-width: 260px;
+  --app-navbar-height: 58px;
+}
+
+#main-navbar {
+  height: var(--app-navbar-height);
+  z-index: 1030;
+}
+
+#sidebarMenu {
+  position: fixed;
+  top: var(--app-navbar-height);
+  bottom: 0;
+  left: 0;
+  width: var(--app-sidebar-width);
+  overflow-y: auto;
+  background-color: var(--mdb-surface-bg, var(--mdb-body-bg));
+  border-right: 1px solid var(--mdb-border-color);
+  z-index: 1020;
+}
+
+#sidebarMenu .nav-section-title {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mdb-secondary-color);
+  padding: 0.75rem 1rem 0.25rem;
+}
+
+.app-content {
+  margin-top: var(--app-navbar-height);
+  padding: 1.5rem;
+}
+
+/* Sidebar pushes content on large screens; on small screens it collapses
+   above the content instead of overlaying it (kept deliberately simple -
+   see PROJECT_STATUS.md, per-page visual polish is a separate follow-up). */
+@media (min-width: 992px) {
+  #sidebarMenu {
+    display: block !important;
+  }
+
+  .app-content {
+    margin-left: var(--app-sidebar-width);
+  }
+}

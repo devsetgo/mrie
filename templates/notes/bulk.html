@@ -1,0 +1,91 @@
+{% extends "base_app.html" %}
+{% block page_title %}| Notes{% endblock %}
+{% block page_stylesheet %}
+<!-- page stylesheets-->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/Trumbowyg/2.27.3/ui/trumbowyg.min.css"
+    integrity="sha512-Fm8kRNVGCBZn0sPmwJbVXlqfJmPC13zRsMElZenX6v721g/H7OukJd8XzDEBRQ2FSATK8xNF9UYvzsCtUpfeJg=="
+    crossorigin="anonymous" referrerpolicy="no-referrer" />
+
+{% endblock %}
+{% block page_breadcrumb %} Notes / Bulk{% endblock %}
+{% block page_head_title %}Bulk Note{% endblock %}
+{% block body %}
+<!-- Main content -->
+<div class="row">
+    <!-- left column -->
+    <div class="col-12">
+        <!-- general form elements -->
+        <div class="card" style="margin: 20px;">
+            <div class="card-header">
+                <h3 class="card-title">Bulk Add Notes</h3>
+            </div>
+            <!-- /.card-header -->
+            <!-- form start -->
+            <div class="row">
+                <div class="col-12">
+                    <form action="/notes/bulk" method="post" enctype="multipart/form-data"
+                        hx-indicator=".htmx-indicator">
+                        <div class="mb-3">
+                            <label for="csv_file">Upload CSV file:</label>
+                            <input type="file" class="form-control-file" id="csv_file" name="csv_file"
+                                accept=".csv">
+                        </div>
+                        <button type="submit" class="btn btn-primary">Submit</button>
+                    </form>
+                </div>
+            </div>
+            <div class="row mt-4">
+                <div class="col-12">
+                    <div class="divider py-1 bg-success"></div>
+                    <h3>Sample CSV Format</h3>
+                    <p><strong>Notes: </strong>
+                        <ul>
+                            <li>Background Processing will take a long time, especially AI processing. It is also prone to needing fixing of data.</li>
+                            <li>date_created will be assumed as UTC. Please pre-process the datetime to already have the offset.</li>
+                        </ul>
+                    <table class="table">
+                        <thead>
+                            <tr>
+                            <!-- my_note,mood,date_created -->
+                                <th scope="col">my_note</th>
+                                <th scope="col">mood</th>
+                                <th scope="col">date_create</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Sample Note 1</td>
+                                <td>Positive</td>
+                                <td>YYYY-MM-DD HH:MM:SS</td>
+                            </tr>
+                            <tr>
+                                <td>Sample Note 2</td>
+                                <td>Neutral</td>
+                                <td>YYYY-MM-DD HH:MM:SS</td>
+                            </tr>
+                            <tr>
+                                <td>Sample Note 3</td>
+                                <td>Negative</td>
+                                <td>YYYY-MM-DD HH:MM:SS</td>
+                            </tr>
+                        </tbody>
+                        <tfoot>
+                            <tr>
+                                <th scope="col">my_note</th>
+                                <th scope="col">mood</th>
+                                <th scope="col">date_create</th>
+                            </tr>
+                    </table>
+                </div>
+            </div>
+            <!-- /.col -->
+        </div>
+    </div>
+    <!-- /.card -->
+</div>
+<!-- /.row -->
+{% endblock %}
+
+{% block page_scripts %}
+<!-- page scripts-->
+{% endblock %}

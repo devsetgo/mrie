@@ -1,0 +1,120 @@
+{% extends "base_app.html" %}
+{% block page_title %}| Weblinks{% endblock %}
+{% block page_stylesheet %}
+<!-- page stylesheets-->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/Trumbowyg/2.27.3/ui/trumbowyg.min.css"
+    integrity="sha512-Fm8kRNVGCBZn0sPmwJbVXlqfJmPC13zRsMElZenX6v721g/H7OukJd8XzDEBRQ2FSATK8xNF9UYvzsCtUpfeJg=="
+    crossorigin="anonymous" referrerpolicy="no-referrer" />
+
+{% endblock %}
+{% block page_breadcrumb %} Weblinks / Bulk{% endblock %}
+{% block page_head_title %}Weblinks Bulk{% endblock %}
+{% block body %}
+<!-- Main content -->
+<div class="row">
+    <!-- left column -->
+    <div class="col-12">
+        <!-- general form elements -->
+        <div class="card" style="margin: 20px;">
+            <div class="card-header">
+                <h3 class="card-title">Bulk Add Weblinks</h3>
+            </div>
+            <!-- /.card-header -->
+            <!-- form start -->
+            <div class="row">
+                <div class="col-12">
+                    <form action="/weblinks/bulk" method="post" enctype="multipart/form-data"
+                        hx-indicator=".htmx-indicator">
+                        <div class="mb-3">
+                            <label for="csv_file">Upload CSV file:</label>
+                            <input type="file" class="form-control-file" id="csv_file" name="csv_file"
+                                accept=".csv">
+                        </div>
+
+
+                        <button type="submit" class="btn btn-primary">Submit</button>
+                    </form>
+                </div>
+            </div>
+            <div class="row mt-4">
+                <div class="col-12">
+                    <div class="divider py-1 bg-success"></div>
+                    <h3>Sample CSV Format</h3>
+                    <p><strong>Notes: </strong>
+                    <ul>
+                        <li>Background Processing will take a long time, especially AI and URL image processing.
+                            It is also prone to needing fixing of data.</li>
+
+                        <li id="categories-list">The following are categories that are allowed: <strong><span
+                                id="category-list"></span></strong></li>
+
+                        <script>
+                            async function fetchCategories() {
+                                try {
+                                    const response = await fetch('/services/v1/categories');
+                                    if (!response.ok) {
+                                        throw new Error('Network response was not ok');
+                                    }
+                                    const categories = await response.json();
+                                    const categoryListElement = document.getElementById('category-list');
+
+                                    if (categories.length > 1) {
+                                        const lastCategory = categories.pop();
+                                        categoryListElement.textContent = categories.join(', ') + ', or ' + lastCategory;
+                                    } else {
+                                        categoryListElement.textContent = categories[0];
+                                    }
+                                } catch (error) {
+                                    console.error('Error fetching categories:', error);
+                                }
+                            }
+
+                            // Fetch categories when the page loads
+                            window.onload = fetchCategories;
+                        </script>
+                    </ul>
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th scope="col">URL</th>
+                                <th scope="col">Category</th>
+                                <th scope="col">Public</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>https://www.ridgid.com/us/en/power-tools</td>
+                                <td>Woodworking</td>
+                                <td>True</td>
+                            </tr>
+                            <tr>
+                                <td>https://github.com</td>
+                                <td>Programming</td>
+                                <td>True</td>
+                            </tr>
+                            <tr>
+                                <td>https://www.theregister.com</td>
+                                <td>Technology</td>
+                                <td>True</td>
+                            </tr>
+                        </tbody>
+                        <tfoot>
+                            <tr>
+                                <th scope="col">URL</th>
+                                <th scope="col">Category</th>
+                                <th scope="col">Public</th>
+                            </tr>
+                    </table>
+                </div>
+            </div>
+            <!-- /.col -->
+        </div>
+    </div>
+    <!-- /.card -->
+</div>
+<!-- /.row -->
+{% endblock %}
+
+{% block page_scripts %}
+<!-- page scripts-->
+{% endblock %}

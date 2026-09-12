@@ -1,0 +1,34 @@
+<!-- Begin Metrics Cards -->
+<div class="row">
+    <div class="col-12">
+        <div class="row" id="counts-metrics">
+            <div class="info-box bg-primary col-md-2">
+                <span class="info-box-icon"><i class="fas fa-file-alt"></i></span>
+                <div class="info-box-content">
+                    <span class="info-box-text">WebLink Count</span>
+                    <span class="info-box-number">{{ '{:,}'.format(weblinks_metrics.weblink_count) if weblinks_metrics.weblink_count else 0  }}</span>
+                </div>
+            </div>
+            <div class="info-box bg-warning col-md-10">
+                <span class="info-box-icon"><i class="fa-solid fa-calculator"></i></span>
+                <div class="info-box-content">
+                    <div style="display: flex; flex-wrap: wrap;">
+                        {% if weblinks_metrics.weblink_category_count %}
+                        {% for k, v in weblinks_metrics.weblink_category_count.items() %}
+                        <div style="margin-right: 20px;">
+                            <span class="info-box-text">{{ k | title }}</span>
+                            <span class="info-box-number">{{ '{:,}'.format(v) }}</span>
+                        </div>
+                        {% endfor %}
+                        {% else %}
+                        <div style="margin-right: 20px;">
+                            <span class="info-box-text">Categories:</span>
+                            <span class="info-box-number">0</span>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+    </div>
+</div>
+<!-- End Metrics Cards -->

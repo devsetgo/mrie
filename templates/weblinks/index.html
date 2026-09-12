@@ -1,0 +1,22 @@
+{% extends "base_app.html" %} <!-- Extends the base HTML layout -->
+{% block page_title %}| WebLinks{% endblock %} <!-- Sets the page title -->
+{% block page_breadcrumb %} WebLinks{% endblock %} <!-- Sets the breadcrumb -->
+{% block page_head_title %}WebLinks{% endblock %} <!-- Sets the page head title -->
+{% block body %} <!-- Starts the block for the body of the page -->
+<!-- being weblink metrics -->
+{% include 'weblinks/metrics.html' %}
+<!-- End weblink metrics -->
+<!-- hx onload -->
+<div class="row" hx-get="/weblinks/pagination" hx-trigger="load" hx-target="#links-data"
+  hx-indicator=".htmx-indicator">
+  <!-- Search WebLinks Form -->
+  {% include 'weblinks/search-form.html' %} <!-- Includes the search form -->
+  <!-- Begin WebLinks Section -->
+  <div class="row" id="links-data"></div>
+  <!-- End WebLinks Section -->
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+<!-- page scripts-->
+{% endblock %}

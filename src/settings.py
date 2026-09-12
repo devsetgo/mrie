@@ -19,6 +19,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from . import __version__
 
+# release_env values that count as "not production" - used to gate any
+# dev-only behavior (the fake-login bypass, the raw-metrics debug card,
+# anything added later). Deliberately an allowlist, not a denylist: an
+# unset or mistyped RELEASE_ENV (e.g. "produciton") then fails closed
+# instead of accidentally exposing something dev-only.
+_DEV_ENVIRONMENTS = {"test", "dev", "local", "development"}
+
 
 class SameSiteEnum(str, Enum):
     Lax = "Lax"
@@ -50,6 +57,8 @@ class Settings(BaseSettings):
     db_name: SecretStr = Field(
         ..., description="For sqlite it should be folder path 'folder/filename"
     )
+    phrase: SecretStr = Field(..., description="substitution cipher")
+    salt: SecretStr = Field(..., description="salt for key derivation")
     echo: bool = Field(True, description="Enable echo")
     future: bool = Field(True, description="Enable future")
     pool_pre_ping: bool = Field(False, description="Enable pool_pre_ping")
@@ -64,6 +73,21 @@ class Settings(BaseSettings):
     release_env: str = "prd"
     version: str = __version__
     debug_mode: bool = False
+    # Dev-only login bypass so a reset in-memory dev DB doesn't force a fresh
+    # WebAuthn registration on every restart. Opt-in (defaults off) and only
+    # ever actually honored when is_dev_environment is true (see below) -
+    # setting this alone does nothing in an environment that isn't
+    # explicitly marked as non-production.
+    dev_fake_login_enabled: bool = False
+
+    @property
+    def is_dev_environment(self) -> bool:
+        return self.release_env.lower() in _DEV_ENVIRONMENTS
+
+    @property
+    def dev_fake_login_allowed(self) -> bool:
+        return self.dev_fake_login_enabled and self.is_dev_environment
+
     # logging settings
     logging_directory: str = "log"
     log_name: str = "log.log"
@@ -83,6 +107,42 @@ class Settings(BaseSettings):
     session_user_identifier: str = "user_identifier"
     # service accounts
     default_timezone: str = "America/New_York"
+    # OpenAI Settings
+    open_ai_disabled: bool = False
+    openai_key: SecretStr = None  # OpenAI API Key
+    openai_model: str = "gpt-5-nano"
+    mood_analysis_weights: list = [
+        ("elated", 1),
+        ("overjoyed", 0.875),
+        ("ecstatic", 0.75),
+        ("joyful", 0.625),
+        ("happy", 0.5),
+        ("pleased", 0.375),
+        ("content", 0.25),
+        ("neutral", 0),
+        ("concerned", -0.25),
+        ("disappointed", -0.375),
+        ("sad", -0.5),
+        ("upset", -0.625),
+        ("angry", -0.75),
+        ("despair", -0.875),
+        ("hopeless", -1),
+    ]
+
+    # WebAuthn (passkey login)
+    webauthn_rp_id: str = "localhost"
+    webauthn_rp_name: str = "mikeryan.ie"
+    webauthn_origin: str = "http://localhost:5000"
+    # single-user access control: only this identity may log in/register a passkey
+    admin_user: SecretStr = None
+    # required to claim the very first passkey (see registration_authorized() in
+    # src/endpoints/users.py) - without it, first-time registration is closed to everyone
+    registration_bootstrap_token: SecretStr = None
+    # historical data
+    history_range: int = 1
+    # self-hosted Plausible analytics
+    plausible_domain: str = "mikeryan.ie"
+    plausible_script_src: str = ""
 
     @model_validator(mode="before")
     @classmethod

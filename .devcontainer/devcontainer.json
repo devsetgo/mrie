@@ -11,15 +11,6 @@
 		"-v",
 		"/var/run/docker.sock:/var/run/docker.sock"
 	],
-	"features": {
-		"ghcr.io/devcontainers/features/node:1": {
-			"nodeGypDependencies": true,
-			"version": "18"
-		},
-		"ghcr.io/devcontainers-contrib/features/vue-cli:2": {
-			"version": "latest"
-		}
-	},
 	"forwardPorts": [
 		5000,
 		5432,
@@ -37,6 +28,7 @@
 				"python.testing.pytestPath": "/usr/local/py-utils/bin/pytest"
 			},
 			"extensions": [
+				"Anthropic.claude-code",
 				"streetsidesoftware.code-spell-checker",
 				"GitHub.copilot",
 				"GitHub.copilot-chat",

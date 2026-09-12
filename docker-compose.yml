@@ -18,7 +18,7 @@ services:
       - "traefik.http.routers.mrie-web.rule=Host(`www.mikeryan.ie`, `mikeryan.ie`)" # <== Your Domain Name goes here for the http rule
       - "traefik.http.routers.mrie-web.entrypoints=web" # <== Defining the entrypoint for http, **ref: line 30
       - "traefik.http.routers.mrie-web.middlewares=redirect@file" # <== This is a middleware to redirect to https
-      - "traefik.http.routers.mrie-secured.rule=Host(`www.mikeryan.ie`, `mikeryan.ie`)" # <== Your Domain Name for the https rule 
+      - "traefik.http.routers.mrie-secured.rule=Host(`www.mikeryan.ie`, `mikeryan.ie`)" # <== Your Domain Name for the https rule
       - "traefik.http.routers.mrie-secured.entrypoints=web-secured" # <== Defining entrypoint for https, **ref: line 31
       - "traefik.http.routers.mrie-secured.tls.certresolver=mytlschallenge" # <== Defining certsresolvers for https
 

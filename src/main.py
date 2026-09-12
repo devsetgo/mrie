@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from dsg_lib.common_functions import logging_config
 from fastapi import FastAPI, Request
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from loguru import logger
@@ -64,8 +64,14 @@ add_middleware(app)
 create_routes(app)
 
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/")
 async def read_root(request: Request):
+    # mrie is single-user: once logged in, "/" has nothing for you that
+    # /notes doesn't - send you straight to the app instead of the public
+    # logged-out landing page.
+    if request.session.get("user_identifier") is not None:
+        return RedirectResponse(url="/notes")
+
     logger.info("index accessed")
     context = {"request": request}
     return templates.TemplateResponse(

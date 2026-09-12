@@ -1,0 +1,10 @@
+{% extends "base_app.html" %}
+{% block page_title %}| Notes{% endblock %}
+{% block page_breadcrumb %} Notes{% endblock %}
+{% block page_head_title %}Notes{% endblock %}
+{% block body %}
+<!-- Begin Search Form -->
+{% include 'notes/search-form.html' %}
+<div class="row" id="notes-data" hx-get="/notes/pagination{{ '?' + request.url.query if request.url.query else '' }}" hx-trigger="load" hx-indicator=".htmx-indicator"></div>
+<!-- End Search Form -->
+{% endblock %}

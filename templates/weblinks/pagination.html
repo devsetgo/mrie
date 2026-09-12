@@ -1,0 +1,35 @@
+<!-- Begin Pagination Template -->
+{% include 'weblinks/page-controls.html' %}
+<!-- Begin Cards -->
+<div class="row">
+  <div class="col-12">
+    <h3 class="text-center">Use the search to filter on terms, dates, and/or mood.</h3>
+  </div>
+  {% for data in weblinks %}
+  <div class="col-md-6 mb-2 p-1">
+    <div class="card">
+      <div class="card mb-3 shadow-sm">
+        <div class="card-body">
+          <h5 class="card-title">
+            <a href="/weblinks/view/{{ data.pkid }}" class="text">{{ data.title|title|safe }}</a>
+          </h5>
+          <p class="card-text">
+            URL: <a href="{{ data.url|default('#') }}" target="_blank" class="text-primary">Link</a>
+          </p>
+          <p class="card-text">{% if data.summary != None %}{{ data.summary|truncate(50, end='...') }}{% endif %}</p>
+          <p class="card-text">
+            <small class="text-muted">{{ data.date_created|default('No date available') }}</small><br>
+            {% if request.session.is_admin is true %}
+            <small class="text-muted">
+              AI Fix: <strong>{{ data.ai_fix }}</strong>
+            </small>
+            {% endif %}
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% include 'weblinks/page-controls.html' %}
+<!-- End Pagination Template -->

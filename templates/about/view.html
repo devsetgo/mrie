@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% block title %}About | MikeRyan.ie{% endblock %}
+
+{% block content %}
+<div class="p-5" style="max-width: 720px;">
+    {% if request.session.user_identifier %}
+    <div class="mb-4">
+        <a href="/about/edit" class="btn btn-outline-secondary btn-sm">
+            <i class="fa-solid fa-pen-to-square"></i> Edit this page
+        </a>
+    </div>
+    {% endif %}
+    {{ content | safe }}
+</div>
+{% endblock %}
