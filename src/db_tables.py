@@ -6,9 +6,9 @@ mrie owns its own private database - this is no longer a shared schema with
 devsetgo.com (dsg). Table structure originated as a port of dsg's
 src/db_tables.py (kept for continuity while notes are imported from dsg's
 export), but mrie is free to evolve its own schema independently from here
-on. mrie creates its own tables on startup (see resources.py); there is no
-Alembic migration setup yet - add one if/when schema changes need more care
-than create_all()'s "create missing tables" behavior provides.
+on. Schema is managed by Alembic (see alembic/) for Postgres; SQLite (tests,
+and make run-dev-workers's file-based driver) still uses create_tables() on
+boot (see resources.py::startup_event() for why).
 """
 
 import re
@@ -39,10 +39,10 @@ from .functions.encrypt import (
 )
 from .settings import settings
 
-if settings.db_driver.startswith("sqlite"):
-    schema_base = base_schema.SchemaBaseSQLite
-elif settings.db_driver.startswith("postgres"):
+if settings.is_postgres:
     schema_base = base_schema.SchemaBasePostgres
+elif settings.db_driver.startswith("sqlite"):
+    schema_base = base_schema.SchemaBaseSQLite
 else:
     raise ValueError("Untested database driver")
 
@@ -193,26 +193,89 @@ class Categories(schema_base, async_db.Base):
         }
 
 
-# TODO: Recreate as a view
 class NoteMetrics(schema_base, async_db.Base):
     __tablename__ = "note_metrics"
 
     user_id = Column(
         String, ForeignKey(USERS_PKID_FK), nullable=False, index=True, unique=True
     )
-    word_count = Column(Integer, default=0)
-    character_count = Column(Integer, default=0)
-    note_count = Column(Integer, default=0)
-    mood_metric = Column(JSON)
+    # Python-computed rollups (rolling averages, streaks/milestones via
+    # date-set walking, mood-weighted means keyed by
+    # settings.mood_analysis_weights, 90-day tag trend deltas) - not
+    # expressible in plain SQL, so this stays a stored column on every
+    # dialect. See functions/notes_metrics.py::_compute_metrics_bundle().
     metrics = Column(JSON)
-    ai_fix_count = Column(Integer, default=0)
-    total_unique_tag_count = Column(Integer, default=0)
     users = relationship("Users", back_populates="note_metrics")
+
+    if not settings.is_postgres:
+        # SQLite (tests, and make run-dev-workers's file-based driver) has
+        # no materialized views - these scalar aggregates stay ordinary
+        # columns here. On Postgres they live in the note_metrics_scalars
+        # materialized view instead - see NoteMetricsScalars below and
+        # alembic/versions/<rev>_note_metrics_scalars_view.py. Field names
+        # here must match NOTE_METRICS_SCALAR_FIELDS below and
+        # NoteMetricsScalars' own columns exactly - notes_metrics.py builds
+        # its insert/update/fallback dicts from that shared list rather
+        # than repeating the six names again.
+        word_count = Column(Integer, default=0)
+        character_count = Column(Integer, default=0)
+        note_count = Column(Integer, default=0)
+        mood_metric = Column(JSON)
+        ai_fix_count = Column(Integer, default=0)
+        total_unique_tag_count = Column(Integer, default=0)
 
     def to_dict(self):
         return {
             c.key: getattr(self, c.key) for c in class_mapper(self.__class__).columns
         }
+
+
+# Single source of truth for NoteMetrics' six plain scalar aggregate field
+# names, shared between the conditional Column block above, NoteMetricsScalars
+# below, and notes_metrics.py's dict-building code - see the comment on the
+# conditional Column block above for why keeping these in sync matters.
+NOTE_METRICS_SCALAR_FIELDS = (
+    "word_count",
+    "character_count",
+    "note_count",
+    "ai_fix_count",
+    "total_unique_tag_count",
+    "mood_metric",
+)
+
+
+if settings.is_postgres:
+    from sqlalchemy.dialects.postgresql import JSONB
+    from sqlalchemy.orm import declarative_base as _declarative_base
+
+    # A deliberately separate declarative base (not async_db.Base) - this
+    # maps a read-only materialized view, not a table Alembic/create_tables()
+    # should ever try to CREATE TABLE for. Keeping it off async_db.Base's
+    # metadata means `alembic revision --autogenerate` never mistakes the
+    # view for a missing table. Never insert/update through this class -
+    # its data only ever changes via REFRESH MATERIALIZED VIEW (see
+    # notes_metrics.py::update_notes_metrics()).
+    _ViewBase = _declarative_base()
+
+    class NoteMetricsScalars(_ViewBase):
+        __tablename__ = "note_metrics_scalars"
+
+        user_id = Column(String, primary_key=True)
+        word_count = Column(Integer)
+        character_count = Column(Integer)
+        note_count = Column(Integer)
+        ai_fix_count = Column(Integer)
+        total_unique_tag_count = Column(Integer)
+        mood_metric = Column(JSONB)
+
+        def to_dict(self):
+            return {
+                c.key: getattr(self, c.key)
+                for c in class_mapper(self.__class__).columns
+            }
+
+else:
+    NoteMetricsScalars = None
 
 
 class Notes(schema_base, async_db.Base):
@@ -231,7 +294,7 @@ class Notes(schema_base, async_db.Base):
     users = relationship("Users", back_populates="notes")
     demo_created = Column(Integer, default=0, index=True)
 
-    if settings.db_driver.startswith("postgres"):
+    if settings.is_postgres:
         __table_args__ = (
             Index("ix_notes__note_hash", func.md5(_note)),
             {"schema": "public"},

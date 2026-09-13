@@ -2,8 +2,8 @@
 """
 Seeds a private local/in-memory database with dummy Notes/Links data for
 local development. Only ever invoked from resources.py's startup_event,
-which gates this behind `not settings.db_driver.startswith("postgres")` -
-it must never run against the shared production Postgres database dsg owns.
+which gates this behind `not settings.is_postgres` - it must never run
+against the shared production Postgres database dsg owns.
 """
 
 import random
