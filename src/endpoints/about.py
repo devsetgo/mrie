@@ -144,11 +144,18 @@ async def upload_about_image(
             status_code=413,
         )
 
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
     extension = ALLOWED_IMAGE_TYPES[file_to_upload.content_type]
     filename = f"{uuid.uuid4()}{extension}"
     file_path = os.path.join(UPLOAD_DIR, filename)
-    await anyio.Path(file_path).write_bytes(data)
+    try:
+        os.makedirs(UPLOAD_DIR, exist_ok=True)
+        await anyio.Path(file_path).write_bytes(data)
+    except OSError as exc:
+        logger.error(f"Error saving uploaded about-page image {filename}: {exc}")
+        return JSONResponse(
+            {"success": False, "message": "Failed to save the uploaded image"},
+            status_code=500,
+        )
 
     logger.info(f"About page image uploaded: {filename}")
     return JSONResponse({"success": True, "url": f"/statics/uploads/about/{filename}"})

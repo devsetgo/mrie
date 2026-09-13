@@ -42,7 +42,7 @@ client = (
         # This is the default and can be omitted
         api_key=settings.openai_key.get_secret_value(),
     )
-    if AsyncOpenAI
+    if AsyncOpenAI and settings.openai_key
     else None
 )
 
@@ -87,6 +87,12 @@ async def get_analysis(content: str, mood_process: str = None) -> dict:
         On failure returns safe defaults plus _ai_fix=True sentinel.
     """
     logger.info("Starting get_analysis (single call)")
+
+    if client is None:
+        raise RuntimeError(
+            "openai not installed or OPENAI_KEY not configured - note analysis disabled"
+        )
+
     moods_list = [m[0] for m in settings.mood_analysis_weights]
     model = settings.openai_model
 
@@ -172,6 +178,12 @@ async def get_blog_post_analysis(
         matching blog_posts.py's direct use of analysis["tags"].
     """
     logger.info("Starting get_blog_post_analysis (single call)")
+
+    if client is None:
+        raise RuntimeError(
+            "openai not installed or OPENAI_KEY not configured - blog post analysis disabled"
+        )
+
     model = settings.openai_model
 
     system_prompt = (
@@ -373,7 +385,8 @@ def name_check(name: str) -> bool:
 
 def tag_check(tags: Dict[str, List[str]]) -> Dict[str, List[str]]:
     """
-    Filter out tags that are recognized as person names by the spaCy model.
+    Filter out tags that are recognized as person names by name_check()'s
+    names-database + nameparser lookup (see name_check() above).
 
     Args:
         tags: A dictionary with a key "tags" containing a list of strings to be checked.
@@ -382,8 +395,6 @@ def tag_check(tags: Dict[str, List[str]]) -> Dict[str, List[str]]:
         A dictionary with the key "tags" containing a filtered list of strings
         where any recognized person names have been removed.
     """
-    # Load the multi-language model
-
     tag_list = tags["tags"]
     logger.debug(tag_list)
     filtered_tags = [tag for tag in tag_list if not name_check(tag)]
@@ -548,6 +559,11 @@ async def get_url_summary(
         logger.info("Detected YouTube URL, using YouTube-specific handler")
         return await get_youtube_summary(url, sentence_length)
 
+    if client is None:
+        raise RuntimeError(
+            "openai not installed or OPENAI_KEY not configured - URL summary generation disabled"
+        )
+
     # Create the prompt for the OpenAI API
     prompt = f"Create a very brief {sentence_length}-word title for this URL. Use only 3-6 words maximum. Focus on the main topic only."
 
@@ -597,6 +613,11 @@ async def get_url_title(
     if is_youtube_url(url):
         logger.info("Detected YouTube URL, using YouTube-specific handler")
         return await get_youtube_title(url)
+
+    if client is None:
+        raise RuntimeError(
+            "openai not installed or OPENAI_KEY not configured - URL title generation disabled"
+        )
 
     # Create the prompt for the OpenAI API
     # prompt = "Create a new title from the websites full title html tag and format as 'Full Title from Website Name'. If not possible provide a title that is a simple single sentence in length."

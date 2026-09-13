@@ -47,7 +47,6 @@ import io
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 from fastapi import (
@@ -77,8 +76,9 @@ from sqlalchemy import (
     update,
 )
 
-from ..db_tables import NoteMetrics, Notes, compute_note_derived_fields
+from ..db_tables import Notes, compute_note_derived_fields
 from ..functions import ai, date_functions, note_import, notes_metrics
+from ..functions.pagination import build_page_url
 from ..functions.notifications import create_notification
 from ..functions.db_guards import (
     is_db_error,
@@ -160,19 +160,7 @@ async def read_notes(
         logger.debug(USER_IDENTIFIER_NONE_MSG)
         return RedirectResponse(url=USERS_LOGIN_URL, status_code=302)
 
-    note_metrics = _safe_record(
-        await db_ops.read_one_record(
-            query=Select(NoteMetrics).where(NoteMetrics.user_id == user_identifier)
-        )
-    )
-
-    if note_metrics is None:
-        await notes_metrics.update_notes_metrics(user_id=user_identifier)
-        note_metrics = _safe_record(
-            await db_ops.read_one_record(
-                query=Select(NoteMetrics).where(NoteMetrics.user_id == user_identifier)
-            )
-        )
+    note_metrics = await notes_metrics.get_or_refresh(user_identifier)
 
     metrics = None
 
@@ -226,18 +214,7 @@ async def get_note_counts(
 ):
     user_identifier = user_info["user_identifier"]
 
-    note_metrics = _safe_record(
-        await db_ops.read_one_record(
-            query=Select(NoteMetrics).where(NoteMetrics.user_id == user_identifier)
-        )
-    )
-    if note_metrics is None:
-        await notes_metrics.update_notes_metrics(user_id=user_identifier)
-        note_metrics = _safe_record(
-            await db_ops.read_one_record(
-                query=Select(NoteMetrics).where(NoteMetrics.user_id == user_identifier)
-            )
-        )
+    note_metrics = await notes_metrics.get_or_refresh(user_identifier)
 
     if note_metrics is None:
         logger.error(f"Unable to load note metrics for user {user_identifier}")
@@ -325,7 +302,7 @@ async def ai_fix_processing(
 @router.get("/bulk")
 async def bulk_note_form(
     request: Request,
-    # user_info: dict = Depends(check_login),
+    user_info: dict = Depends(check_login),
 ):
     return templates.TemplateResponse(
         request=request, name="notes/bulk.html", context={"demo_note": None}
@@ -354,7 +331,7 @@ async def bulk_note(
     logger.info("Added task to background tasks")
 
     # redirect to /notes
-    return RedirectResponse(url=NOTES_URL, status_code=302)
+    return RedirectResponse(url=NOTES_URL, status_code=303)
 
 
 @router.get("/edit/{note_id}")
@@ -430,11 +407,15 @@ async def update_note(
 
     # Fetch the old data
     old_data = _safe_record(
-        await db_ops.read_one_record(query=Select(Notes).where(Notes.pkid == note_id))
+        await db_ops.read_one_record(
+            query=Select(Notes).where(
+                and_(Notes.user_id == user_identifier, Notes.pkid == note_id)
+            )
+        )
     )
     if old_data is None:
         logger.warning(f"No note found with ID: {note_id} for user: {user_identifier}")
-        return RedirectResponse(url=NOTES_URL, status_code=302)
+        return RedirectResponse(url=NOTES_URL, status_code=303)
     old_data = old_data.to_dict()
 
     # Get the new data from the form
@@ -473,7 +454,9 @@ async def update_note(
 
     # Update the database
     result = await db_ops.execute_one(
-        update(Notes).where(Notes.pkid == note_id).values(**updated_data)
+        update(Notes)
+        .where(and_(Notes.user_id == user_identifier, Notes.pkid == note_id))
+        .values(**updated_data)
     )
     if is_db_error(result):
         logger.error(f"Failed to update note with ID: {note_id}")
@@ -482,7 +465,7 @@ async def update_note(
     background_tasks.add_task(
         notes_metrics.update_notes_metrics, user_id=user_identifier
     )
-    return RedirectResponse(url=f"/notes/view/{note_id}", status_code=302)
+    return RedirectResponse(url=f"/notes/view/{note_id}", status_code=303)
 
 
 @router.get("/delete/{note_id}")
@@ -521,7 +504,7 @@ async def delete_note(
 
     if note is None:
         logger.warning(f"No note found with ID: {note_id} for user: {user_identifier}")
-        return RedirectResponse(url=NOTES_URL, status_code=302)
+        return RedirectResponse(url=NOTES_URL, status_code=303)
 
     await db_ops.execute_one(delete(Notes).where(Notes.pkid == note_id))
 
@@ -529,7 +512,7 @@ async def delete_note(
     background_tasks.add_task(
         notes_metrics.update_notes_metrics, user_id=user_identifier
     )
-    return RedirectResponse(url=NOTES_URL, status_code=302)
+    return RedirectResponse(url=NOTES_URL, status_code=303)
 
 
 @router.get("/issues")
@@ -634,7 +617,7 @@ async def create_note(
         f"Created note with ID: {new_note_pkid}, AI analysis running in background"
     )
 
-    return RedirectResponse(url=f"/notes/view/{new_note_pkid}", status_code=302)
+    return RedirectResponse(url=f"/notes/view/{new_note_pkid}", status_code=303)
 
 
 def _extract_row_tags(row):
@@ -772,20 +755,15 @@ def _build_pagination_url(
     limit: int,
     tags: list[str],
 ) -> str:
-    pairs = [("page", page)]
-    if search_term:
-        pairs.append(("search_term", search_term))
-    if start_date:
-        pairs.append(("start_date", start_date))
-    if end_date:
-        pairs.append(("end_date", end_date))
-    if mood:
-        pairs.append(("mood", mood))
-    if limit != 20:
-        pairs.append(("limit", limit))
-    for tag in tags:
-        pairs.append(("tags", tag))
-    return "/notes/pagination?" + urlencode(pairs)
+    params = [
+        ("search_term", search_term),
+        ("start_date", start_date),
+        ("end_date", end_date),
+        ("mood", mood),
+        ("limit", limit if limit != 20 else None),
+        *[("tags", tag) for tag in tags],
+    ]
+    return build_page_url("/notes/pagination", page, params)
 
 
 @router.get("/pagination")

@@ -22,7 +22,7 @@
                     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
                     <script>
                         $(document).ready(function () {
-                            $.getJSON('/services/v1/categories?category_name=is_weblink', function (data) {
+                            $.getJSON('/weblinks/categories', function (data) {
                                 $.each(data, function (index, value) {
                                     $('#category').append('<option value="' + value + '">' + value + '</option>');
                                 });

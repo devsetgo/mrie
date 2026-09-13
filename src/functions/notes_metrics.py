@@ -17,7 +17,7 @@ from loguru import logger
 from sqlalchemy import Select, insert, update
 
 from ..db_tables import NoteMetrics, Notes
-from ..functions.db_guards import safe_list as _safe_list
+from ..functions.db_guards import safe_list as _safe_list, safe_record as _safe_record
 from ..resources import db_ops
 from ..settings import settings
 
@@ -294,7 +294,18 @@ def _compute_metrics_bundle(notes: list[dict[str, Any]]) -> dict[str, Any]:
 
     by_year = _sort_by_period(dict(acc.by_year), "%Y")
     by_month = _sort_by_period(dict(acc.by_month), "%Y-%m")
-    by_week = _sort_by_period(dict(acc.by_week), "%Y-%W")
+    # by_week's keys are ISO year-week (from created.isocalendar()), which
+    # doesn't line up with _sort_by_period's %W (calendar-week) parsing at
+    # year boundaries - e.g. "2025-52" and "2026-01" can each contain days
+    # from the other's calendar year. %G-%V is the ISO equivalent format,
+    # but strptime requires a %u (ISO weekday) alongside it to parse
+    # unambiguously, hence the fixed "-1" (Monday).
+    by_week = dict(
+        sorted(
+            acc.by_week.items(),
+            key=lambda item: datetime.datetime.strptime(f"{item[0]}-1", "%G-%V-%u"),
+        )
+    )
     mood_by_month_counts = _sort_by_period(
         {k: dict(v) for k, v in acc.mood_by_month_counts.items()}, "%Y-%m"
     )
@@ -396,7 +407,7 @@ async def update_notes_metrics(user_id: str):
     started_at = datetime.datetime.now(datetime.timezone.utc)
 
     query_metric = Select(NoteMetrics).where(NoteMetrics.user_id == user_id)
-    metric_data = await db_ops.read_one_record(query=query_metric)
+    metric_data = _safe_record(await db_ops.read_one_record(query=query_metric))
 
     query = Select(Notes).where(Notes.user_id == user_id).limit(10000).offset(0)
     # read_query() returns a DatabaseErrorResult (a dict) on failure rather
@@ -446,3 +457,22 @@ async def update_notes_metrics(user_id: str):
         * 1000
     )
     logger.info("Note metrics updated for user {} in {}ms", user_id, elapsed_ms)
+
+
+async def get_or_refresh(user_id: str):
+    """
+    Fetch the user's NoteMetrics row, computing it for the first time (via
+    update_notes_metrics()) if it doesn't exist yet.
+
+    Returns:
+        The NoteMetrics ORM object, or None if it still couldn't be loaded
+        after attempting to compute it (e.g. a DB error on the insert).
+    """
+    query = Select(NoteMetrics).where(NoteMetrics.user_id == user_id)
+    note_metrics = _safe_record(await db_ops.read_one_record(query=query))
+
+    if note_metrics is None:
+        await update_notes_metrics(user_id=user_id)
+        note_metrics = _safe_record(await db_ops.read_one_record(query=query))
+
+    return note_metrics

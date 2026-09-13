@@ -111,9 +111,11 @@ def create_routes(app: FastAPI) -> NoReturn:
 
         accept_header = request.headers.get("accept", "")
         wants_json = "application/json" in accept_header
+        is_htmx_request = request.headers.get("hx-request", "").lower() == "true"
         logger.debug(
             f"http_exception_handler: path={request.url.path!r} "
-            f"accept={accept_header!r} wants_json={wants_json}"
+            f"accept={accept_header!r} wants_json={wants_json} "
+            f"is_htmx_request={is_htmx_request}"
         )
 
         if wants_json:
@@ -123,6 +125,14 @@ def create_routes(app: FastAPI) -> NoReturn:
 
         if exc.status_code == 401:
             request.session.clear()
+            if is_htmx_request:
+                # A raw 303 here would have htmx swap the entire login page's
+                # HTML into whatever small hx-target issued the request.
+                # HX-Redirect instead tells htmx to do a full browser
+                # navigation (window.location), like a top-level page load.
+                return Response(
+                    status_code=200, headers={"HX-Redirect": "/users/login"}
+                )
             return RedirectResponse(url="/users/login", status_code=303)
 
         # Get the status code of the exception

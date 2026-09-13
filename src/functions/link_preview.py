@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 """ """
 
+import ipaddress
+import socket
 import time
+from urllib.parse import urlparse
 
 import anyio
 import httpx
@@ -23,6 +26,46 @@ except ImportError:
     webdriver = Options = Service = ChromeDriverManager = None
 
 client = httpx.AsyncClient()
+
+_ALLOWED_SCREENSHOT_SCHEMES = {"http", "https"}
+
+
+def _is_safe_screenshot_url(url: str) -> bool:
+    """
+    Reject URLs that would let Selenium's driver.get(url) be used for SSRF -
+    non-http(s) schemes (file://, etc.), and any hostname that resolves to a
+    private/loopback/link-local/reserved address. This blocks the cloud
+    metadata endpoint (169.254.169.254), internal services (RFC1918), and
+    the local machine (127.0.0.0/8) - url is admin-supplied (weblink create/
+    edit) but a compromised or CSRF'd admin session shouldn't be able to
+    pivot into the deployment's internal network via a "bookmark".
+    """
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+
+    if parsed.scheme not in _ALLOWED_SCREENSHOT_SCHEMES or not parsed.hostname:
+        return False
+
+    try:
+        addr_infos = socket.getaddrinfo(parsed.hostname, None)
+    except socket.gaierror:
+        return False
+
+    for _family, _type, _proto, _canonname, sockaddr in addr_infos:
+        ip = ipaddress.ip_address(sockaddr[0])
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_unspecified
+        ):
+            return False
+
+    return True
 
 
 async def url_status(url: str) -> bool:
@@ -82,6 +125,9 @@ def _capture_full_page_screenshot_sync(url: str) -> bytes:
     duration of the page load.
     """
     from .youtube_helper import is_youtube_url
+
+    if not _is_safe_screenshot_url(url):
+        raise ValueError(f"Refusing to capture screenshot for unsafe URL: {url!r}")
 
     # Set up Chrome options
     chrome_options = Options()

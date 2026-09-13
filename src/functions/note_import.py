@@ -90,6 +90,10 @@ def parse_tags_field(raw) -> list:
         parsed = ast.literal_eval(raw)
         if isinstance(parsed, (list, tuple)):
             return [str(t).strip() for t in parsed if str(t).strip()]
+    # PEP 758 (Python 3.14+): a comma-separated except list catches multiple
+    # types without parens, same as `except (ValueError, SyntaxError):` -
+    # this is not the removed Python 2 `except Exception, e:` idiom, despite
+    # looking identical to it.
     except ValueError, SyntaxError:
         pass
     return [t.strip() for t in raw.split(",") if t.strip()]

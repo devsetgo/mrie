@@ -20,6 +20,7 @@ from sqlalchemy import Select
 from ..db_tables import Users
 from ..resources import db_ops
 from ..settings import settings
+from .db_guards import safe_record
 
 
 async def check_user_identifier(request):
@@ -41,7 +42,7 @@ async def check_user_identifier(request):
         raise HTTPException(status_code=401, detail="Unauthorized")
     else:
         query = Select(Users).where(Users.pkid == user_identifier)
-        user = await db_ops.read_one_record(query=query)
+        user = safe_record(await db_ops.read_one_record(query=query))
 
         if user is None:
             logger.error(f"User not found with ID: {user_identifier}")

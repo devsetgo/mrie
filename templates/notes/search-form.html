@@ -76,7 +76,7 @@
     var initialTags = {{ qp.getlist('tags') | tojson }};
 
     // Populate datalist with user's existing tags
-    fetch('/notes/tags')
+    fetch('/notes/tags', { headers: { Accept: 'application/json' } })
         .then(function (r) { return r.json(); })
         .then(function (tags) {
             var dl = document.getElementById('tags-datalist');

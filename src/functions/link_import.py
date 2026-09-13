@@ -73,13 +73,19 @@ async def ai_process_pkids(pkids: list):
             continue
 
         link_update = {}
-        # title = await ai.get_html_title(record.url)
         logger.info(f"Processed link {record.pkid}")
-        summary = await ai.get_url_summary(record.url)
-        link_update["summary"] = summary["summary"]
+        try:
+            summary = await ai.get_url_summary(record.url)
+            link_update["summary"] = summary["summary"]
 
-        if record.title == "Processing":
-            link_update["title"] = await ai.get_url_title(record.url)
+            if record.title == "Processing":
+                link_update["title"] = await ai.get_url_title(record.url)
+        except RuntimeError as exc:
+            # AI unavailable (openai not installed/configured) - leave this
+            # link's title/summary as "Processing" and move on to the next
+            # pkid rather than aborting the rest of the batch.
+            logger.warning(f"AI summary/title unavailable for {pkid}: {exc}")
+            continue
 
         # image_preview_data isn't touched here (screenshot capture happens
         # afterward in loop_pkids_for_images) - recompute ai_fix from the

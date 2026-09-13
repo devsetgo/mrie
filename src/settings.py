@@ -46,7 +46,6 @@ class DatabaseDriverEnum(str, Enum):
 
 class Settings(BaseSettings):
     # Class that describes the settings schema
-    https_redirect: bool = False
     db_driver: DatabaseDriverEnum = Field("memory", description="DB_DRIVER")
     db_username: SecretStr = Field(..., description="DB_USERNAME")
     db_password: SecretStr = Field(..., description="DB_PASSWORD")
@@ -97,7 +96,6 @@ class Settings(BaseSettings):
     log_diagnose: bool = False
     log_intercept_standard_logging: bool = False
     # session management
-    max_failed_login_attempts: int = 5
     session_secret_key: SecretStr = Field(
         default_factory=lambda: secrets.token_hex(32),
         description="Signs the session cookie",
@@ -109,7 +107,6 @@ class Settings(BaseSettings):
     # service accounts
     default_timezone: str = "America/New_York"
     # OpenAI Settings
-    open_ai_disabled: bool = False
     openai_key: Optional[SecretStr] = None  # OpenAI API Key
     openai_model: str = "gpt-5-nano"
     mood_analysis_weights: list = [

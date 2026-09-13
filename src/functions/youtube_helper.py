@@ -18,6 +18,7 @@ Author:
 """
 
 import re
+import time
 from typing import Dict
 from urllib.parse import urlparse
 
@@ -26,7 +27,7 @@ from loguru import logger
 
 from src.settings import settings
 
-from .ai import get_model_temperature
+from .ai import get_model_temperature, strip_quotation_marks
 
 try:
     from openai import AsyncOpenAI
@@ -34,7 +35,9 @@ except ImportError:
     AsyncOpenAI = None
 
 client = (
-    AsyncOpenAI(api_key=settings.openai_key.get_secret_value()) if AsyncOpenAI else None
+    AsyncOpenAI(api_key=settings.openai_key.get_secret_value())
+    if AsyncOpenAI and settings.openai_key
+    else None
 )
 
 temperature = 0.2
@@ -80,6 +83,16 @@ def extract_youtube_video_id(url: str) -> str:
     return ""
 
 
+# get_url_summary() and get_url_title() each independently call
+# get_youtube_metadata() for the same video/URL when a weblink is created
+# or edited (see web_links.py create_link/edit_weblink) - a short in-process
+# cache avoids doubling the oEmbed HTTP round trip for that same call pair.
+# Only successful lookups are cached, so a transient oEmbed failure doesn't
+# get "stuck" returning the fallback for the full TTL.
+_METADATA_CACHE: dict[str, tuple[Dict[str, str], float]] = {}
+_METADATA_CACHE_TTL_SECONDS = 300
+
+
 async def get_youtube_metadata(video_id: str) -> Dict[str, str]:
     """
     Get YouTube video metadata using the oEmbed API (no API key required).
@@ -90,6 +103,12 @@ async def get_youtube_metadata(video_id: str) -> Dict[str, str]:
     Returns:
         Dict[str, str]: Dictionary containing title, description, and other metadata.
     """
+    cached = _METADATA_CACHE.get(video_id)
+    if cached is not None:
+        metadata, cached_at = cached
+        if time.monotonic() - cached_at < _METADATA_CACHE_TTL_SECONDS:
+            return metadata
+
     try:
         async with AsyncClient() as client:
             # Using YouTube's oEmbed API which doesn't require authentication
@@ -98,12 +117,14 @@ async def get_youtube_metadata(video_id: str) -> Dict[str, str]:
 
             if response.status_code == 200:
                 data = response.json()
-                return {
+                metadata = {
                     "title": data.get("title", ""),
                     "author_name": data.get("author_name", ""),
                     "description": f"YouTube video by {data.get('author_name', 'Unknown')}: {data.get('title', 'No title available')}",
                     "thumbnail_url": data.get("thumbnail_url", ""),
                 }
+                _METADATA_CACHE[video_id] = (metadata, time.monotonic())
+                return metadata
             else:
                 logger.warning(
                     f"Failed to get YouTube metadata for video {video_id}: {response.status_code}"
@@ -123,29 +144,6 @@ async def get_youtube_metadata(video_id: str) -> Dict[str, str]:
             "author_name": "",
             "thumbnail_url": "",
         }
-
-
-def strip_quotation_marks(text: str) -> str:
-    """
-    Removes various types of quotation marks from the given text.
-
-    Args:
-        text (str): The input string from which quotation marks will be removed.
-
-    Returns:
-        str: The input string with all quotation marks removed.
-    """
-    return (
-        text.replace('"', "")
-        .replace("'", "")
-        .replace(
-            """, "")
-        .replace(""",
-            "",
-        )
-        .replace("'", "")
-        .replace("'", "")
-    )
 
 
 async def get_youtube_summary(url: str, sentence_length: int = 2) -> Dict[str, str]:

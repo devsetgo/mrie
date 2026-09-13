@@ -29,6 +29,8 @@ Usage:
     This module is designed to be integrated into a FastAPI application, providing a backend API for listing weblinks. It can be used in web applications that require content curation and discovery features, with the ability to filter and paginate through large sets of data.
 """
 
+import asyncio
+import html
 import uuid
 from base64 import b64encode
 from datetime import datetime
@@ -49,6 +51,7 @@ from sqlalchemy import Select, asc, delete, func, insert, or_, update
 
 from ..db_tables import Categories, WebLinks, compute_weblink_ai_fix
 from ..functions import ai, date_functions, link_import, link_preview
+from ..functions.pagination import build_page_url
 from ..functions.db_guards import (
     is_db_error,
     safe_list as _safe_list,
@@ -72,7 +75,7 @@ async def list_of_web_links(
     request: Request,
     offset: int = Query(0, description="Offset for pagination"),
     limit: int = Query(100, description="Limit for pagination"),
-    # user_info: dict = Depends(check_login),
+    user_info: dict = Depends(check_login),
 ):
     weblinks_metrics = await link_preview.get_weblink_metrics()
     context = {"page": "weblinks", "weblinks_metrics": weblinks_metrics}
@@ -113,11 +116,11 @@ async def bulk_weblink(
     logger.info("Added task to background tasks")
 
     # redirect to /notes
-    return RedirectResponse(url="/weblinks", status_code=302)
+    return RedirectResponse(url="/weblinks", status_code=303)
 
 
 @router.get("/categories", response_class=JSONResponse)
-async def get_categories():
+async def get_categories(user_info: dict = Depends(check_login)):
     categories = _safe_list(
         await db_ops.read_query(
             Select(Categories)
@@ -138,7 +141,7 @@ async def read_weblinks_pagination(
     category: str = Query(None, description="Category"),
     page: int = Query(1, description="Page number"),
     limit: int = Query(12, description="Number of weblinks per page"),
-    # user_info: dict = Depends(check_login),
+    user_info: dict = Depends(check_login),
 ):
     query_params = {
         "search_term": search_term,
@@ -172,6 +175,12 @@ async def read_weblinks_pagination(
         )
     if category:
         query = query.where(WebLinks.category == category)
+
+    # Count against the filtered query, before .limit()/.offset() are
+    # applied below - a bare unfiltered count would make total_pages wrong
+    # for every filtered search.
+    weblinks_count = await db_ops.count_query(query=query)
+
     # order and limit the results
     offset = (page - 1) * limit
     query = query.order_by(WebLinks.date_created.desc()).limit(limit).offset(offset)
@@ -195,22 +204,17 @@ async def read_weblinks_pagination(
             friendly_string=True,
         )
     found = len(weblinks)
-    count_query = Select(WebLinks)
-    weblinks_count = await db_ops.count_query(query=count_query)
-
     current_count = found
 
     total_pages = -(-weblinks_count // limit)  # Ceiling division
     # Generate the URLs for the previous and next pages
     prev_page_url = (
-        f"/weblinks/pagination?page={page - 1}&"
-        + "&".join(f"{k}={v}" for k, v in query_params.items() if v)
+        build_page_url("/weblinks/pagination", page - 1, query_params)
         if page > 1
         else None
     )
     next_page_url = (
-        f"/weblinks/pagination?page={page + 1}&"
-        + "&".join(f"{k}={v}" for k, v in query_params.items() if v)
+        build_page_url("/weblinks/pagination", page + 1, query_params)
         if page < total_pages
         else None
     )
@@ -235,7 +239,7 @@ async def read_weblinks_pagination(
 
 
 @router.get("/new")
-async def new_link(request: Request):
+async def new_link(request: Request, user_info: dict = Depends(check_login)):
     return templates.TemplateResponse(
         request=request,
         name="/weblinks/new.html",
@@ -261,10 +265,19 @@ async def create_link(
 
     logger.debug(f"Received category: {category} and content: {url}")
 
-    # Get summary from OpenAI
-    summary = await ai.get_url_summary(url=url, sentence_length=20)
-    title = await ai.get_url_title(url=url)
-    logger.debug(f"Received summary from AI: {summary}")
+    # Get summary from OpenAI - degrade to a "Processing" placeholder rather
+    # than 500ing when openai isn't installed/configured (the documented
+    # default per CLAUDE.md's optional-dependency pattern); the CSV bulk
+    # import flow already uses this same placeholder/ai_fix convention.
+    try:
+        summary, title = await asyncio.gather(
+            ai.get_url_summary(url=url, sentence_length=20), ai.get_url_title(url=url)
+        )
+        logger.debug(f"Received summary from AI: {summary}")
+    except RuntimeError as exc:
+        logger.warning(f"AI summary/title unavailable, using placeholder: {exc}")
+        summary = {"summary": "Processing"}
+        title = "Processing"
 
     # Create the post
     new_pkid = str(uuid.uuid4())
@@ -284,14 +297,14 @@ async def create_link(
     )
     if is_db_error(result):
         logger.error(f"Error creating link: {result}")
-        return RedirectResponse(url=ERROR_418_URL, status_code=302)
+        return RedirectResponse(url=ERROR_418_URL, status_code=303)
 
     logger.info(f"Created weblinks with ID: {new_pkid}")
 
     background_tasks.add_task(
         link_preview.capture_full_page_screenshot, url=url, pkid=new_pkid
     )
-    return RedirectResponse(url=f"/weblinks/view/{new_pkid}", status_code=302)
+    return RedirectResponse(url=f"/weblinks/view/{new_pkid}", status_code=303)
 
 
 # get weblink by pkid
@@ -299,7 +312,7 @@ async def create_link(
 async def view_weblink(
     request: Request,
     pkid: str,
-    # user_info: dict = Depends(check_login),
+    user_info: dict = Depends(check_login),
 ):
     user_timezone = request.session.get("timezone", None)
     if user_timezone is None:
@@ -347,7 +360,7 @@ async def view_weblink(
         "page": "weblinks",
         "weblink": link,
         "page_image": (
-            f'<img src="data:image/png;base64,{encoded_image}" alt="{link["title"]}" class="img-thumbnail" style="width: 700px; cursor: pointer;" onclick="openModal(this)"/>'
+            f'<img src="data:image/png;base64,{encoded_image}" alt="{html.escape(link["title"] or "")}" class="img-thumbnail" style="width: 700px; cursor: pointer;" onclick="openModal(this)"/>'
             if encoded_image
             else ""
         ),
@@ -379,10 +392,18 @@ async def edit_weblink(
 
     logger.debug(f"Editing content for URL: {url}")
 
-    # Get summary from OpenAI
-    summary = await ai.get_url_summary(url=url, sentence_length=20)
-    title = await ai.get_url_title(url=url)
-    logger.debug(f"Received summary from AI: {summary}")
+    # Get summary from OpenAI - fall back to the existing title/summary
+    # rather than 500ing when openai isn't installed/configured (the
+    # documented default per CLAUDE.md's optional-dependency pattern).
+    try:
+        summary, title = await asyncio.gather(
+            ai.get_url_summary(url=url, sentence_length=20), ai.get_url_title(url=url)
+        )
+        logger.debug(f"Received summary from AI: {summary}")
+    except RuntimeError as exc:
+        logger.warning(f"AI summary/title unavailable, keeping existing: {exc}")
+        summary = {"summary": existing["summary"]}
+        title = existing["title"]
     weblink_update = {
         "title": title,
         "summary": summary["summary"],
@@ -472,13 +493,13 @@ async def update_comment(
 
     if is_db_error(result):
         logger.error(f"Error updating link: {result}")
-        return RedirectResponse(url=ERROR_418_URL, status_code=302)
+        return RedirectResponse(url=ERROR_418_URL, status_code=303)
 
     logger.info(f"Updated weblinks with ID: {pkid}")
     background_tasks.add_task(
         link_preview.capture_full_page_screenshot, url=url, pkid=pkid
     )
-    return RedirectResponse(url=f"/weblinks/view/{pkid}", status_code=302)
+    return RedirectResponse(url=f"/weblinks/view/{pkid}", status_code=303)
 
 
 @router.get("/delete/{pkid}")
@@ -526,11 +547,11 @@ async def delete_weblink(
 
         if not delete_confirm:
             logger.warning(f"Delete confirmation not checked for weblink {pkid}")
-            return RedirectResponse(url="/error/400", status_code=302)
+            return RedirectResponse(url="/error/400", status_code=303)
 
     except Exception as e:
         logger.error(f"Error processing form data for weblink delete {pkid}: {str(e)}")
-        return RedirectResponse(url="/error/400", status_code=302)
+        return RedirectResponse(url="/error/400", status_code=303)
 
     # Check if the weblink exists and belongs to the user
     link = _safe_record(
@@ -539,14 +560,14 @@ async def delete_weblink(
 
     if link is None:
         logger.warning(f"No weblink found with ID: {pkid} for user: {user_identifier}")
-        return RedirectResponse(url=ERROR_404_URL, status_code=302)
+        return RedirectResponse(url=ERROR_404_URL, status_code=303)
 
     # Check if user owns the weblink or is admin
     if link.user_id != user_identifier and not user_info.get("is_admin", False):
         logger.warning(
             f"User {user_identifier} attempted to delete weblink {pkid} owned by {link.user_id}"
         )
-        return RedirectResponse(url="/error/403", status_code=302)
+        return RedirectResponse(url="/error/403", status_code=303)
 
     try:
         # Attempt to delete the weblink
@@ -555,13 +576,13 @@ async def delete_weblink(
         # Check if the result indicates an error
         if is_db_error(result):
             logger.error(f"Error deleting weblink {pkid}: {result}")
-            return RedirectResponse(url="/error/500", status_code=302)
+            return RedirectResponse(url="/error/500", status_code=303)
 
         logger.info(
             f"Successfully deleted weblink with ID: {pkid} by user: {user_identifier}"
         )
-        return RedirectResponse(url="/weblinks", status_code=302)
+        return RedirectResponse(url="/weblinks", status_code=303)
 
     except Exception as e:
         logger.error(f"Exception occurred while deleting weblink {pkid}: {str(e)}")
-        return RedirectResponse(url="/error/500", status_code=302)
+        return RedirectResponse(url="/error/500", status_code=303)

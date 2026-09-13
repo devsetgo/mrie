@@ -366,3 +366,63 @@ def test_register_verify_fails_to_store_credential(client, monkeypatch):
         content=REGISTRATION_CREDENTIAL_BODY,
     )
     assert response.status_code == 500
+
+
+def test_login_verify_success_establishes_session_and_updates_credential(
+    client, monkeypatch
+):
+    # Only the cryptographic signature checks (verify_registration_response/
+    # verify_authentication_response) are mocked, the same boundary every
+    # other test in this file mocks at - registering the credential and then
+    # logging in with it both run for real against the test DB (real
+    # credential/user lookups, real sign_count/session-cookie updates), so
+    # this covers the success path's own logic rather than just asserting a
+    # mock was called.
+    dev_login = client.get("/users/dev-login", follow_redirects=False)
+    assert dev_login.status_code == 303
+
+    # Register a real WebAuthnCredentials row via the actual registration
+    # endpoint, so the subsequent login lookup finds a real row for a real
+    # admin user rather than a hand-inserted fixture.
+    client.get("/users/register/options")
+
+    def fake_verify_registration_response(**kwargs):
+        return SimpleNamespace(
+            credential_id=b"\x00\x00\x00",  # base64url-encodes to "AAAA"
+            credential_public_key=b"test-public-key-bytes",
+            sign_count=0,
+        )
+
+    monkeypatch.setattr(
+        users_module.webauthn,
+        "verify_registration_response",
+        fake_verify_registration_response,
+    )
+    register = client.post(
+        "/users/register/verify", content=REGISTRATION_CREDENTIAL_BODY
+    )
+    assert register.status_code == 200
+
+    client.get("/users/logout", follow_redirects=False)
+
+    # Same credential ("AAAA" raw ID) used to log in - real credential/user
+    # lookup, only the signature check itself is mocked.
+    client.get("/users/login/options")
+
+    def fake_verify_authentication_response(**kwargs):
+        return SimpleNamespace(new_sign_count=5)
+
+    monkeypatch.setattr(
+        users_module.webauthn,
+        "verify_authentication_response",
+        fake_verify_authentication_response,
+    )
+    login = client.post("/users/login/verify", content=AUTHENTICATION_CREDENTIAL_BODY)
+
+    assert login.status_code == 200
+    assert login.json() == {"redirect": "/notes"}
+
+    # The session cookie from login_verify actually works for a login-gated
+    # route - proves session establishment, not just a 200 response body.
+    dashboard = client.get("/notes/", follow_redirects=False)
+    assert dashboard.status_code == 200
