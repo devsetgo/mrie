@@ -1,0 +1,68 @@
+name: Testing
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: Lint (pre-commit + ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+          cache: 'pip'
+
+      - name: Install dev dependencies
+        run: pip install -r requirements/dev.txt
+
+      - name: Run pre-commit hooks (black + hygiene checks)
+        run: pre-commit run -a
+
+      - name: Check lint (ruff)
+        run: ruff check src tests
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    env:
+      # Same in-memory-DB/dev-login test posture conftest.py forces locally -
+      # set explicitly here too since that's belt-and-suspenders, not a
+      # substitute for the required-but-unused-under-memory-driver settings
+      # below (DB_USERNAME/PASSWORD/HOST/PORT/NAME, PHRASE/SALT) which have
+      # no default and must be present for Settings() to construct at all.
+      DB_DRIVER: memory
+      RELEASE_ENV: test
+      DEV_FAKE_LOGIN_ENABLED: "True"
+      HTTPS_ONLY: "False"
+      DB_USERNAME: ci
+      DB_PASSWORD: ci
+      DB_HOST: localhost
+      DB_PORT: "5432"
+      DB_NAME: ci
+      PHRASE: ci-test-phrase-not-a-real-secret
+      SALT: ci-test-salt-not-a-real-secret
+      ADMIN_USER: ci-admin
+      SESSION_SECRET_KEY: ci-test-session-secret-not-a-real-secret
+      REGISTRATION_BOOTSTRAP_TOKEN: ci-test-bootstrap-token
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements/dev.txt
+
+      - name: Test with pytest
+        run: PYTHONPATH=. pytest

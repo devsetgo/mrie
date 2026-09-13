@@ -1,0 +1,35 @@
+# Basic dependabot.yml file with minimum configuration for two package
+# managers. Runs once a month (not weekly/daily) since mrie is a
+# single-maintainer personal site - no need for constant update noise.
+
+version: 2
+updates:
+  # Enable version updates for pip - mrie's manifests live under requirements/
+  # (requirements/prd.txt + requirements/dev.txt, the latter pulling in the
+  # former via "-r prd.txt"), not a root-level requirements.txt.
+  - package-ecosystem: "pip"
+    directory: "/requirements"
+    labels:
+      - "pip"
+      - "dependencies"
+    commit-message:
+      # Prefix all commit messages with "pip"
+      prefix: "pip"
+      include: "scope"
+    schedule:
+      interval: "monthly"
+      day: "saturday"
+      timezone: "America/New_York"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    labels:
+      - "github actions"
+      - "dependencies"
+    commit-message:
+      # Prefix all commit messages with "github-actions"
+      prefix: "github-actions"
+      include: "scope"
+    schedule:
+      interval: "monthly"
+      day: "saturday"
+      timezone: "America/New_York"
