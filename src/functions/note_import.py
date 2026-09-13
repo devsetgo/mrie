@@ -33,7 +33,7 @@ import asyncio
 import csv
 import itertools
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from dateutil.parser import parse
 from dateutil.tz import UTC
@@ -90,6 +90,10 @@ def parse_tags_field(raw) -> list:
         parsed = ast.literal_eval(raw)
         if isinstance(parsed, (list, tuple)):
             return [str(t).strip() for t in parsed if str(t).strip()]
+    # PEP 758 (Python 3.14+): a comma-separated except list catches multiple
+    # types without parens, same as `except (ValueError, SyntaxError):` -
+    # this is not the removed Python 2 `except Exception, e:` idiom, despite
+    # looking identical to it.
     except ValueError, SyntaxError:
         pass
     return [t.strip() for t in raw.split(",") if t.strip()]
@@ -128,7 +132,9 @@ async def read_notes_from_file(csv_file, user_id: str):
             csv_file, desc="Importing exported notes (no AI)", total=note_count
         ):
             count += 1
-            date_created = parse_date(c["Date Created"]) or datetime.utcnow()
+            date_created = parse_date(c["Date Created"]) or datetime.now(
+                timezone.utc
+            ).replace(tzinfo=None)
             note_text = c.get("Note") or ""
             summary_text = c.get("Summary") or ""
             mood = (c.get("Mood") or "").strip().lower() or "neutral"
@@ -217,7 +223,7 @@ async def read_notes_from_file(csv_file, user_id: str):
 
     logger.info(f"Notes imoorted: {count}")
     # Process the notes with AI
-    await process_ai(list_of_ids=ai_ids, user_identifier=user_id)
+    await process_ai(list_of_ids=ai_ids)
     # Update the notes metrics
     await notes_metrics.update_notes_metrics(user_id=user_id)
 
@@ -255,9 +261,7 @@ def parse_date(date_created):
     return dt
 
 
-async def process_note(
-    note_id: str, semaphore: asyncio.Semaphore, user_identifier: str
-):
+async def process_note(note_id: str, semaphore: asyncio.Semaphore):
     async with semaphore:
         try:
             query = Select(Notes).where(Notes.pkid == note_id)
@@ -303,11 +307,9 @@ async def process_note(
             logger.error(f"Error processing note ID {note_id}: {e}")
 
 
-async def process_ai(list_of_ids: list, user_identifier: str):
+async def process_ai(list_of_ids: list):
     semaphore = asyncio.Semaphore(20)  # Limit to 20 concurrent tasks
-    tasks = [
-        process_note(note_id, semaphore, user_identifier) for note_id in list_of_ids
-    ]
+    tasks = [process_note(note_id, semaphore) for note_id in list_of_ids]
     for chunk in async_tqdm(
         [tasks[i : i + 20] for i in range(0, len(tasks), 20)], desc="AI processing"
     ):

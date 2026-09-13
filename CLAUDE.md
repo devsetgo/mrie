@@ -54,7 +54,17 @@ the original request's method, and since `/error/{code}` is GET-only, a
 failed POST would redirect into a 405 into another redirect, forever).
 Any new endpoint meant to be called via `fetch()`/htmx from JS should send
 that `Accept` header if it wants JSON errors back instead of an HTML
-redirect. `src/app_middleware.py` adds `SessionMiddleware` (cookie-based
+redirect. A 401 specifically is a separate special case even when JSON
+isn't requested: `check_login` rejecting a missing/expired/dangling
+session (e.g. the session's `user_identifier` no longer exists after the
+in-memory dev DB reset) clears the session and redirects to
+`/users/login` — landing on a bare "401 Unauthorized" page would
+otherwise be a dead end with no way forward. An htmx fragment request
+(`HX-Request: true`, e.g. `hx-get="/notes/pagination"`) hitting that same
+401 gets an `HX-Redirect` response header instead of the raw 303 — htmx
+turns that into a full browser navigation, rather than swapping the
+entire login page's HTML into whatever small `hx-target` issued the
+request. `src/app_middleware.py` adds `SessionMiddleware` (cookie-based
 session, `https_only`/`same_site`/`max_age` from settings) and a
 request-logging middleware.
 
@@ -118,7 +128,8 @@ agnostic to how the session was populated.
 
 ### Data layer
 - `src/db_tables.py` — SQLAlchemy models (`Users`, `Notes`, `NoteMetrics`,
-  `WebLinks`, `Categories`, `Notifications`, `WebAuthnCredentials`). Notes'
+  `WebLinks`, `Categories`, `Notifications`, `WebAuthnCredentials`,
+  `AboutPage`). Notes'
   `_note`/`_summary` columns are Fernet-encrypted at rest
   (`src/functions/encrypt.py`, key derived from `PHRASE`/`SALT`).
 - `src/db_init.py` builds the async engine from `settings.db_driver`

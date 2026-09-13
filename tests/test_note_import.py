@@ -81,6 +81,13 @@ def test_parse_date_unparseable_returns_none():
     assert note_import.parse_date("not a date") is None
 
 
+def test_parse_date_empty_string_returns_none():
+    # dateutil.parser.ParserError (raised for "") is a ValueError subclass,
+    # so this falls through the same except-and-return-None path rather
+    # than propagating an uncaught exception.
+    assert note_import.parse_date("") is None
+
+
 def test_validate_csv_headers_success():
     reader = csv.DictReader(io.StringIO("my_note,mood,date_created\n"))
     assert note_import.validate_csv_headers(reader) == {"status": "success"}
@@ -127,7 +134,7 @@ def test_bulk_import_simple_format(logged_in_client, mock_note_ai):
         files={"csv_file": ("notes.csv", csv_content, "text/csv")},
         follow_redirects=False,
     )
-    assert response.status_code == 302
+    assert response.status_code == 303
 
     # process_ai/process_note run synchronously as part of the background
     # task under TestClient, so by the time the request returns the note
@@ -158,7 +165,7 @@ def test_bulk_import_simple_format_defers_to_ai_mood_when_invalid(
         files={"csv_file": ("notes.csv", csv_content, "text/csv")},
         follow_redirects=False,
     )
-    assert response.status_code == 302
+    assert response.status_code == 303
 
     listing = logged_in_client.get(
         "/notes/pagination",
@@ -182,7 +189,7 @@ def test_bulk_import_simple_format_ai_failure_leaves_note_flagged(
         files={"csv_file": ("notes.csv", csv_content, "text/csv")},
         follow_redirects=False,
     )
-    assert response.status_code == 302
+    assert response.status_code == 303
 
     issues = logged_in_client.get("/notes/issues")
     assert issues.status_code == 200
@@ -199,4 +206,4 @@ def test_bulk_import_unrecognized_format_is_a_noop(logged_in_client):
         files={"csv_file": ("notes.csv", csv_content, "text/csv")},
         follow_redirects=False,
     )
-    assert response.status_code == 302
+    assert response.status_code == 303

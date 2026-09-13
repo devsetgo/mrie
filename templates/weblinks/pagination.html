@@ -11,7 +11,7 @@
       <div class="card mb-3 shadow-sm">
         <div class="card-body">
           <h5 class="card-title">
-            <a href="/weblinks/view/{{ data.pkid }}" class="text">{{ data.title|title|safe }}</a>
+            <a href="/weblinks/view/{{ data.pkid }}" class="text">{{ data.title|title }}</a>
           </h5>
           <p class="card-text">
             URL: <a href="{{ data.url|default('#') }}" target="_blank" class="text-primary">Link</a>

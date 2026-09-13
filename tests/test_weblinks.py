@@ -66,7 +66,7 @@ def test_create_view_update_comment_delete_weblink(
         },
         follow_redirects=False,
     )
-    assert create.status_code == 302
+    assert create.status_code == 303
     pkid = _pkid_from_redirect(create.headers["location"])
 
     view = client.get(f"/weblinks/view/{pkid}")
@@ -82,7 +82,7 @@ def test_create_view_update_comment_delete_weblink(
         },
         follow_redirects=False,
     )
-    assert update.status_code == 302
+    assert update.status_code == 303
 
     view_after_update = client.get(f"/weblinks/view/{pkid}")
     assert "pytest updated comment" in view_after_update.text
@@ -92,11 +92,61 @@ def test_create_view_update_comment_delete_weblink(
         data={"deleteConfirm": "on"},
         follow_redirects=False,
     )
-    assert delete.status_code == 302
+    assert delete.status_code == 303
 
     view_after_delete = client.get(f"/weblinks/view/{pkid}", follow_redirects=False)
     assert view_after_delete.status_code == 303
     assert view_after_delete.headers["location"] == "/error/404"
+
+
+def test_delete_weblink_rejects_non_owner_non_admin(
+    logged_in_client, mock_weblink_externals
+):
+    # This app only ever has one real identity (single-admin design, see
+    # CLAUDE.md) - every real login session has is_admin=True, so a
+    # non-owner/non-admin caller can't be produced through the normal login
+    # flow. Overriding the check_login dependency directly is the only way
+    # to exercise delete_weblink's ownership guard (as opposed to its
+    # separate "not found" branch, already covered above).
+    from src.functions.login_required import check_login
+    from src.main import app
+
+    client = logged_in_client
+    create = client.post(
+        "/weblinks/new",
+        data={
+            "category": "Programming",
+            "url": "https://example.com/ownership-test",
+            "comment": "",
+        },
+        follow_redirects=False,
+    )
+    pkid = _pkid_from_redirect(create.headers["location"])
+
+    async def fake_check_login():
+        return {
+            "user_identifier": "someone-else",
+            "is_admin": False,
+            "timezone": None,
+            "exp": 0,
+        }
+
+    app.dependency_overrides[check_login] = fake_check_login
+    try:
+        response = client.post(
+            f"/weblinks/delete/{pkid}",
+            data={"deleteConfirm": "on"},
+            follow_redirects=False,
+        )
+    finally:
+        app.dependency_overrides.pop(check_login, None)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/error/403"
+
+    # Confirm it's actually still there - the guard blocked the delete.
+    still_there = client.get(f"/weblinks/view/{pkid}")
+    assert still_there.status_code == 200
 
 
 def test_get_categories(logged_in_client):
@@ -135,7 +185,7 @@ def test_weblinks_bulk_import(logged_in_client, mock_weblink_externals):
         files={"csv_file": ("weblinks.csv", csv_content, "text/csv")},
         follow_redirects=False,
     )
-    assert response.status_code == 302
+    assert response.status_code == 303
 
     listing = logged_in_client.get(
         "/weblinks/pagination", params={"search_term": "Mock Title"}

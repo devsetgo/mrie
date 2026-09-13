@@ -36,7 +36,7 @@ def test_create_view_edit_delete_note(logged_in_client):
         },
         follow_redirects=False,
     )
-    assert create.status_code == 302
+    assert create.status_code == 303
     note_id = _note_id_from_redirect(create.headers["location"])
 
     view = client.get(f"/notes/view/{note_id}")
@@ -48,19 +48,38 @@ def test_create_view_edit_delete_note(logged_in_client):
         data={"note": "pytest edited this note.", "mood": "negative"},
         follow_redirects=False,
     )
-    assert edit.status_code == 302
+    assert edit.status_code == 303
 
     view_after_edit = client.get(f"/notes/view/{note_id}")
     assert "pytest edited this note." in view_after_edit.text
 
     delete = client.post(f"/notes/delete/{note_id}", follow_redirects=False)
-    assert delete.status_code == 302
+    assert delete.status_code == 303
 
     # A deleted (or otherwise not-found/not-owned) note redirects to /notes
     # rather than 404ing - see read_note in src/endpoints/notes.py.
     view_after_delete = client.get(f"/notes/view/{note_id}", follow_redirects=False)
     assert view_after_delete.status_code == 302
     assert view_after_delete.headers["location"] == "/notes"
+
+
+def test_delete_note_form_not_found(logged_in_client):
+    # delete_note_form's query filters by user_id AND pkid together, so a
+    # note that doesn't exist and a note owned by someone else both take
+    # this same "not found" branch.
+    response = logged_in_client.get(
+        "/notes/delete/does-not-exist", follow_redirects=False
+    )
+    assert response.status_code == 302
+    assert response.headers["location"] == "/notes"
+
+
+def test_delete_note_not_found(logged_in_client):
+    response = logged_in_client.post(
+        "/notes/delete/does-not-exist", follow_redirects=False
+    )
+    assert response.status_code == 303
+    assert response.headers["location"] == "/notes"
 
 
 def test_edit_note_form(logged_in_client):
@@ -93,7 +112,7 @@ def test_note_list_shows_created_note(logged_in_client):
         data={"mood": "neutral", "note": "pytest note visible in the list view."},
         follow_redirects=False,
     )
-    assert create.status_code == 302
+    assert create.status_code == 303
 
     listing = client.get("/notes/")
     assert listing.status_code == 200
@@ -123,7 +142,7 @@ def test_notes_tags_endpoint(logged_in_client):
         data={"mood": "positive", "note": "note with tags for the tags endpoint test."},
         follow_redirects=False,
     )
-    assert create.status_code == 302
+    assert create.status_code == 303
 
     response = client.get("/notes/tags")
     assert response.status_code == 200
@@ -157,7 +176,7 @@ def test_notes_pagination_with_search_term(logged_in_client):
         data={"summary": unique_text},
         follow_redirects=False,
     )
-    assert edit.status_code == 302
+    assert edit.status_code == 303
 
     response = client.get("/notes/pagination", params={"search_term": unique_text})
     assert response.status_code == 200
@@ -182,7 +201,7 @@ def test_notes_pagination_with_tags_filter(logged_in_client):
         data={"summary": unique_summary, "tags": "PytestUniqueTag"},
         follow_redirects=False,
     )
-    assert edit.status_code == 302
+    assert edit.status_code == 303
 
     matching = client.get("/notes/pagination", params={"tags": "pytestuniquetag"})
     assert matching.status_code == 200
@@ -210,7 +229,7 @@ def test_notes_pagination_with_date_range_filter(logged_in_client):
         data={"summary": unique_summary},
         follow_redirects=False,
     )
-    assert edit.status_code == 302
+    assert edit.status_code == 303
 
     # end_date is parsed as midnight of that day, so it must be tomorrow (not
     # today) to include a note created earlier today at some later time.
@@ -259,12 +278,40 @@ def test_notes_bulk_import_export_format(logged_in_client):
         files={"csv_file": ("notes.csv", csv_content, "text/csv")},
         follow_redirects=False,
     )
-    assert response.status_code == 302
+    assert response.status_code == 303
 
     listing = logged_in_client.get(
         "/notes/pagination", params={"search_term": "bulk-import-summary-marker"}
     )
     assert "bulk-import-summary-marker" in listing.text
+
+
+def test_notes_bulk_import_export_format_with_missing_optional_fields(
+    logged_in_client,
+):
+    # Date Created/Mood/Mood Analysis all blank - exercises
+    # read_notes_from_file's fallback branches that the happy-path export
+    # test above doesn't reach: parse_date() failing entirely falls back to
+    # "now", and blank Mood defaults to "neutral" rather than raising or
+    # importing an empty mood value.
+    csv_content = (
+        "PKID,User ID,Mood,Mood Analysis,Note,Summary,Tags,Word Count,"
+        "Character Count,Date Created\n"
+        'abc456,user-x,,,"Note with missing optional fields.",'
+        '"missing-fields-summary-marker","[]",5,32,\n'
+    )
+    response = logged_in_client.post(
+        "/notes/bulk",
+        files={"csv_file": ("notes.csv", csv_content, "text/csv")},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    listing = logged_in_client.get(
+        "/notes/pagination",
+        params={"search_term": "missing-fields-summary-marker", "mood": "neutral"},
+    )
+    assert "missing-fields-summary-marker" in listing.text
 
 
 def test_ai_resubmit_page_not_found(logged_in_client):

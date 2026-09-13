@@ -26,6 +26,7 @@ Author:
 import os
 import uuid
 
+import anyio
 from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.responses import JSONResponse, RedirectResponse
 from loguru import logger
@@ -128,26 +129,33 @@ async def save_about(request: Request, user_info: dict = Depends(check_login)):
 
 @router.post("/upload-image")
 async def upload_about_image(
-    fileToUpload: UploadFile = File(...), user_info: dict = Depends(check_login)
+    file_to_upload: UploadFile = File(..., alias="fileToUpload"),
+    user_info: dict = Depends(check_login),
 ):
-    if fileToUpload.content_type not in ALLOWED_IMAGE_TYPES:
+    if file_to_upload.content_type not in ALLOWED_IMAGE_TYPES:
         return JSONResponse(
             {"success": False, "message": "Unsupported image type"}, status_code=400
         )
 
-    data = await fileToUpload.read()
+    data = await file_to_upload.read()
     if len(data) > MAX_UPLOAD_BYTES:
         return JSONResponse(
             {"success": False, "message": "Image is too large (5 MB max)"},
             status_code=413,
         )
 
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
-    extension = ALLOWED_IMAGE_TYPES[fileToUpload.content_type]
+    extension = ALLOWED_IMAGE_TYPES[file_to_upload.content_type]
     filename = f"{uuid.uuid4()}{extension}"
     file_path = os.path.join(UPLOAD_DIR, filename)
-    with open(file_path, "wb") as f:
-        f.write(data)
+    try:
+        os.makedirs(UPLOAD_DIR, exist_ok=True)
+        await anyio.Path(file_path).write_bytes(data)
+    except OSError as exc:
+        logger.error(f"Error saving uploaded about-page image {filename}: {exc}")
+        return JSONResponse(
+            {"success": False, "message": "Failed to save the uploaded image"},
+            status_code=500,
+        )
 
     logger.info(f"About page image uploaded: {filename}")
     return JSONResponse({"success": True, "url": f"/statics/uploads/about/{filename}"})

@@ -47,10 +47,8 @@ import io
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
-# from pytz import timezone, UTC
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -78,8 +76,9 @@ from sqlalchemy import (
     update,
 )
 
-from ..db_tables import NoteMetrics, Notes, compute_note_derived_fields
+from ..db_tables import Notes, compute_note_derived_fields
 from ..functions import ai, date_functions, note_import, notes_metrics
+from ..functions.pagination import build_page_url
 from ..functions.notifications import create_notification
 from ..functions.db_guards import (
     is_db_error,
@@ -92,6 +91,10 @@ from ..resources import db_ops, templates
 from ..settings import settings
 
 router = APIRouter()
+
+NOTES_URL = "/notes"
+USERS_LOGIN_URL = "/users/login"
+USER_IDENTIFIER_NONE_MSG = "User identifier is None, redirecting to login"
 
 
 async def process_ai_analysis_background(
@@ -152,38 +155,22 @@ async def read_notes(
     user_info: dict = Depends(check_login),
 ):
     user_identifier = user_info["user_identifier"]
-    user_info["timezone"]
 
     if user_identifier is None:
-        logger.debug("User identifier is None, redirecting to login")
-        return RedirectResponse(url="/users/login", status_code=302)
+        logger.debug(USER_IDENTIFIER_NONE_MSG)
+        return RedirectResponse(url=USERS_LOGIN_URL, status_code=302)
 
-    note_metrics = _safe_record(
-        await db_ops.read_one_record(
-            query=Select(NoteMetrics).where(NoteMetrics.user_id == user_identifier)
-        )
-    )
-
-    if note_metrics is None:
-        await notes_metrics.update_notes_metrics(user_id=user_identifier)
-        note_metrics = _safe_record(
-            await db_ops.read_one_record(
-                query=Select(NoteMetrics).where(NoteMetrics.user_id == user_identifier)
-            )
-        )
+    note_metrics = await notes_metrics.get_or_refresh(user_identifier)
 
     metrics = None
 
     if note_metrics is not None:
         note_metrics = note_metrics.to_dict()
-        # note_metrics.pop("pkid")
-        # note_metrics.pop("date_created")
-        # # note_metrics.pop("date_updated")
-        # note_metrics.pop("user_id")
         metrics = note_metrics["metrics"]
 
-        # Get the current time in UTC
-        now = datetime.utcnow()
+        # Get the current time in UTC - naive, to match the naive datetimes
+        # SQLite hands back for note_metrics.date_updated (see date_update below)
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
 
         # Calculate the time one hour ago
         nth_hour_ago = now - timedelta(hours=0.25)
@@ -226,20 +213,8 @@ async def get_note_counts(
     user_info: dict = Depends(check_login),
 ):
     user_identifier = user_info["user_identifier"]
-    user_info["timezone"]
 
-    note_metrics = _safe_record(
-        await db_ops.read_one_record(
-            query=Select(NoteMetrics).where(NoteMetrics.user_id == user_identifier)
-        )
-    )
-    if note_metrics is None:
-        await notes_metrics.update_notes_metrics(user_id=user_identifier)
-        note_metrics = _safe_record(
-            await db_ops.read_one_record(
-                query=Select(NoteMetrics).where(NoteMetrics.user_id == user_identifier)
-            )
-        )
+    note_metrics = await notes_metrics.get_or_refresh(user_identifier)
 
     if note_metrics is None:
         logger.error(f"Unable to load note metrics for user {user_identifier}")
@@ -268,7 +243,6 @@ async def ai_update_note(
     request: Request, note_id: str, user_info: dict = Depends(check_login)
 ):
     user_identifier = user_info["user_identifier"]
-    user_info["timezone"]
 
     query = Select(Notes).where(
         and_(Notes.user_id == user_identifier, Notes.pkid == note_id)
@@ -328,7 +302,7 @@ async def ai_fix_processing(
 @router.get("/bulk")
 async def bulk_note_form(
     request: Request,
-    # user_info: dict = Depends(check_login),
+    user_info: dict = Depends(check_login),
 ):
     return templates.TemplateResponse(
         request=request, name="notes/bulk.html", context={"demo_note": None}
@@ -343,8 +317,6 @@ async def bulk_note(
     user_info: dict = Depends(check_login),
 ):
     user_identifier = user_info["user_identifier"]
-    # user_identifier =  request.session.get("user_identifier")
-    user_info["timezone"]
 
     # read the file content
     file_content = await csv_file.read()
@@ -359,7 +331,7 @@ async def bulk_note(
     logger.info("Added task to background tasks")
 
     # redirect to /notes
-    return RedirectResponse(url="/notes", status_code=302)
+    return RedirectResponse(url=NOTES_URL, status_code=303)
 
 
 @router.get("/edit/{note_id}")
@@ -377,17 +349,17 @@ async def edit_note_form(
     note = _safe_record(await db_ops.read_one_record(query=query))
     if note is None:
         logger.warning(f"No note found with ID: {note_id} for user: {user_identifier}")
-        return RedirectResponse(url="/notes", status_code=302)
+        return RedirectResponse(url=NOTES_URL, status_code=302)
 
     note = note.to_dict()
 
     # offset date_created and date_updated to user's timezone
-    note["date_created"] = await date_functions.timezone_update(
+    note["date_created"] = date_functions.timezone_update(
         user_timezone=user_timezone,
         date_time=note["date_created"],
         friendly_string=True,
     )
-    note["date_updated"] = await date_functions.timezone_update(
+    note["date_updated"] = date_functions.timezone_update(
         user_timezone=user_timezone,
         date_time=note["date_updated"],
         friendly_string=True,
@@ -404,6 +376,26 @@ async def edit_note_form(
     )
 
 
+def _normalize_tags_form_value(new_value):
+    if isinstance(new_value, str):
+        return [tag.strip() for tag in new_value.split(",")]
+    if not isinstance(new_value, list):
+        return [new_value]
+    return new_value
+
+
+def _collect_note_field_updates(form, old_data: dict, fields: list[str]) -> dict:
+    updated_data = {}
+    for field in fields:
+        new_value = form.get(field)
+        if new_value is None or new_value == old_data.get(field):
+            continue
+        if field == "tags":
+            new_value = _normalize_tags_form_value(new_value)
+        updated_data[field] = new_value
+    return updated_data
+
+
 @router.post("/edit/{note_id}")
 async def update_note(
     background_tasks: BackgroundTasks,
@@ -412,36 +404,29 @@ async def update_note(
     user_info: dict = Depends(check_login),
 ):
     user_identifier = user_info["user_identifier"]
-    user_info["timezone"]
 
     # Fetch the old data
     old_data = _safe_record(
-        await db_ops.read_one_record(query=Select(Notes).where(Notes.pkid == note_id))
+        await db_ops.read_one_record(
+            query=Select(Notes).where(
+                and_(Notes.user_id == user_identifier, Notes.pkid == note_id)
+            )
+        )
     )
     if old_data is None:
         logger.warning(f"No note found with ID: {note_id} for user: {user_identifier}")
-        return RedirectResponse(url="/notes", status_code=302)
+        return RedirectResponse(url=NOTES_URL, status_code=303)
     old_data = old_data.to_dict()
 
     # Get the new data from the form
     form = await request.form()
 
     # Initialize the updated data dictionary with the current date and time
-    updated_data = {"date_updated": datetime.utcnow()}
+    updated_data = {"date_updated": datetime.now(timezone.utc).replace(tzinfo=None)}
 
-    # List of fields to update
-    fields = ["mood", "note", "tags", "summary", "mood_analysis"]
     # Compare the old data to the new data
-    for field in fields:
-        new_value = form.get(field)
-        if new_value is not None and new_value != old_data.get(field):
-            if field == "tags":
-                # Ensure tags is a list
-                if isinstance(new_value, str):
-                    new_value = [tag.strip() for tag in new_value.split(",")]
-                elif not isinstance(new_value, list):
-                    new_value = [new_value]
-            updated_data[field] = new_value
+    fields = ["mood", "note", "tags", "summary", "mood_analysis"]
+    updated_data.update(_collect_note_field_updates(form, old_data, fields))
 
     # word_count/character_count/ai_fix/demo_created used to be recomputed
     # automatically by the before_update ORM event whenever *any* field
@@ -469,7 +454,9 @@ async def update_note(
 
     # Update the database
     result = await db_ops.execute_one(
-        update(Notes).where(Notes.pkid == note_id).values(**updated_data)
+        update(Notes)
+        .where(and_(Notes.user_id == user_identifier, Notes.pkid == note_id))
+        .values(**updated_data)
     )
     if is_db_error(result):
         logger.error(f"Failed to update note with ID: {note_id}")
@@ -478,7 +465,7 @@ async def update_note(
     background_tasks.add_task(
         notes_metrics.update_notes_metrics, user_id=user_identifier
     )
-    return RedirectResponse(url=f"/notes/view/{note_id}", status_code=302)
+    return RedirectResponse(url=f"/notes/view/{note_id}", status_code=303)
 
 
 @router.get("/delete/{note_id}")
@@ -488,14 +475,13 @@ async def delete_note_form(
     user_info: dict = Depends(check_login),
 ):
     user_identifier = user_info["user_identifier"]
-    user_info["timezone"]
     query = Select(Notes).where(
         and_(Notes.user_id == user_identifier, Notes.pkid == note_id)
     )
     note = _safe_record(await db_ops.read_one_record(query=query))
     if note is None:
         logger.warning(f"No note found with ID: {note_id} for user: {user_identifier}")
-        return RedirectResponse(url="/notes", status_code=302)
+        return RedirectResponse(url=NOTES_URL, status_code=302)
 
     return templates.TemplateResponse(
         request=request, name="/notes/delete.html", context={"note": note}
@@ -510,7 +496,6 @@ async def delete_note(
     user_info: dict = Depends(check_login),
 ):
     user_identifier = user_info["user_identifier"]
-    user_info["timezone"]
 
     query = Select(Notes).where(
         and_(Notes.user_id == user_identifier, Notes.pkid == note_id)
@@ -519,7 +504,7 @@ async def delete_note(
 
     if note is None:
         logger.warning(f"No note found with ID: {note_id} for user: {user_identifier}")
-        return RedirectResponse(url="/notes", status_code=302)
+        return RedirectResponse(url=NOTES_URL, status_code=303)
 
     await db_ops.execute_one(delete(Notes).where(Notes.pkid == note_id))
 
@@ -527,7 +512,7 @@ async def delete_note(
     background_tasks.add_task(
         notes_metrics.update_notes_metrics, user_id=user_identifier
     )
-    return RedirectResponse(url="/notes", status_code=302)
+    return RedirectResponse(url=NOTES_URL, status_code=303)
 
 
 @router.get("/issues")
@@ -539,8 +524,8 @@ async def get_note_issue(
     user_timezone = user_info["timezone"]
 
     if user_identifier is None:
-        logger.debug("User identifier is None, redirecting to login")
-        return RedirectResponse(url="/users/login", status_code=302)
+        logger.debug(USER_IDENTIFIER_NONE_MSG)
+        return RedirectResponse(url=USERS_LOGIN_URL, status_code=302)
 
     query = (
         Select(Notes)
@@ -552,7 +537,7 @@ async def get_note_issue(
     # offset date_created and date_updated to user's timezone
     notes = [note.to_dict() for note in notes]
     metrics = {"word_count": 0, "note_count": len(notes), "character_count": 0}
-    notes = await date_functions.update_timezone_for_dates(
+    notes = date_functions.update_timezone_for_dates(
         data=notes, user_timezone=user_timezone
     )
 
@@ -570,8 +555,6 @@ async def new_note_form(
     request: Request,
     user_info: dict = Depends(check_login),
 ):
-    user_info["user_identifier"]
-    user_info["timezone"]
 
     return templates.TemplateResponse(
         request=request, name="notes/new.html", context={}
@@ -585,7 +568,6 @@ async def create_note(
     user_info: dict = Depends(check_login),
 ):
     user_identifier = user_info["user_identifier"]
-    user_info["timezone"]
     form = await request.form()
     mood = form["mood"]
     note_content = form["note"]
@@ -635,7 +617,40 @@ async def create_note(
         f"Created note with ID: {new_note_pkid}, AI analysis running in background"
     )
 
-    return RedirectResponse(url=f"/notes/view/{new_note_pkid}", status_code=302)
+    return RedirectResponse(url=f"/notes/view/{new_note_pkid}", status_code=303)
+
+
+def _extract_row_tags(row):
+    if row is None:
+        return None
+
+    if hasattr(row, "tags"):
+        return row.tags
+
+    mapping = getattr(row, "_mapping", None)
+    if mapping and "tags" in mapping:
+        return mapping["tags"]
+
+    if isinstance(row, dict):
+        return row.get("tags")
+
+    if isinstance(row, (list, tuple)):
+        return row[0] if row else None
+
+    return None
+
+
+def _normalize_tags_value(tags_value) -> list:
+    if isinstance(tags_value, str):
+        try:
+            parsed = json.loads(tags_value)
+            tags_value = parsed if isinstance(parsed, list) else [tags_value]
+        except Exception:
+            tags_value = [tags_value]
+
+    if isinstance(tags_value, (list, tuple, set)):
+        return [tag for tag in tags_value if tag]
+    return []
 
 
 @router.get("/tags")
@@ -649,68 +664,17 @@ async def get_note_tags(
     results = await db_ops.read_query(query=query)
     all_tags: set = set()
 
-    def _extract_tags(row):
-        if row is None:
-            return None
-
-        if hasattr(row, "tags"):
-            return row.tags
-
-        mapping = getattr(row, "_mapping", None)
-        if mapping and "tags" in mapping:
-            return mapping["tags"]
-
-        if isinstance(row, dict):
-            return row.get("tags")
-
-        if isinstance(row, (list, tuple)):
-            return row[0] if row else None
-
-        return None
-
     if results and not isinstance(results, (str, dict)):
         for row in results:
-            tags_value = _extract_tags(row)
-            if not tags_value:
-                continue
-
-            if isinstance(tags_value, str):
-                try:
-                    parsed = json.loads(tags_value)
-                    tags_value = parsed if isinstance(parsed, list) else [tags_value]
-                except Exception:
-                    tags_value = [tags_value]
-
-            if isinstance(tags_value, (list, tuple, set)):
-                all_tags.update([tag for tag in tags_value if tag])
+            tags_value = _extract_row_tags(row)
+            if tags_value:
+                all_tags.update(_normalize_tags_value(tags_value))
     return sorted(all_tags)
 
 
-@router.get("/pagination")
-async def read_notes_pagination(
-    request: Request,
-    search_term: str = Query(
-        None, description="Search term for note and summary content"
-    ),
-    start_date: str = Query(None, description="Start date"),
-    end_date: str = Query(None, description="End date"),
-    mood: str = Query(None, description="Mood"),
-    tags: list[str] = Query(default=[], description="Tags to filter by (OR logic)"),
-    page: int = Query(1, description="Page number"),
-    limit: int = Query(20, description="Number of notes per page"),
-    user_info: dict = Depends(check_login),
+def _apply_notes_filters(
+    query, tags: list[str], mood: str, start_date: str, end_date: str
 ):
-    user_identifier = user_info["user_identifier"]
-    user_timezone = user_info["timezone"]
-
-    logger.info(
-        f"Searching content: {search_term!r}, tags: {tags}, start_date: {start_date}, "
-        f"end_date: {end_date}, mood: {mood}, user: {user_identifier}"
-    )
-
-    # Base SQL query — mood, dates, and tags are filterable at the DB level
-    query = Select(Notes).where(Notes.user_id == user_identifier)
-
     # Tag filter: OR logic, case-insensitive exact match within the JSON array.
     # func.lower() on both sides handles mixed-case stored tags (e.g. "Valerie" matches "valerie").
     if tags:
@@ -746,8 +710,10 @@ async def read_notes_pagination(
             (Notes.date_created >= start_dt) & (Notes.date_created <= end_dt)
         )
 
-    query = query.order_by(Notes.date_created.desc())
+    return query
 
+
+async def _fetch_notes_page(query, search_term: str, page: int, limit: int):
     offset = (page - 1) * limit
 
     if not search_term:
@@ -759,48 +725,99 @@ async def read_notes_pagination(
             logger.error(f"Unexpected result from read_query: {page_notes}")
             page_notes = []
         notes = [n.to_dict() for n in page_notes]
-    else:
-        # Slow path: decrypt all SQL-filtered notes to search content
-        # For ~2,900–5,800 notes Fernet decrypt is fast (~100ms total); the
-        # mood/date/tag SQL filters above reduce the set before we get here.
-        all_notes = await db_ops.read_query(query=query)
-        if not isinstance(all_notes, list):
-            logger.error(f"Unexpected result from read_query: {all_notes}")
-            all_notes = []
-        term = search_term.lower()
-        all_notes = [
-            n
-            for n in all_notes
-            if term in (n.note or "").lower() or term in (n.summary or "").lower()
-        ]
-        note_count = len(all_notes)
-        total_pages = -(-note_count // limit) if note_count else 1
-        notes = [n.to_dict() for n in all_notes[offset : offset + limit]]
+        return notes, note_count, total_pages
 
-    notes = await date_functions.update_timezone_for_dates(
+    # Slow path: decrypt all SQL-filtered notes to search content
+    # For ~2,900–5,800 notes Fernet decrypt is fast (~100ms total); the
+    # mood/date/tag SQL filters above reduce the set before we get here.
+    all_notes = await db_ops.read_query(query=query)
+    if not isinstance(all_notes, list):
+        logger.error(f"Unexpected result from read_query: {all_notes}")
+        all_notes = []
+    term = search_term.lower()
+    all_notes = [
+        n
+        for n in all_notes
+        if term in (n.note or "").lower() or term in (n.summary or "").lower()
+    ]
+    note_count = len(all_notes)
+    total_pages = -(-note_count // limit) if note_count else 1
+    notes = [n.to_dict() for n in all_notes[offset : offset + limit]]
+    return notes, note_count, total_pages
+
+
+def _build_pagination_url(
+    page: int,
+    search_term: str,
+    start_date: str,
+    end_date: str,
+    mood: str,
+    limit: int,
+    tags: list[str],
+) -> str:
+    params = [
+        ("search_term", search_term),
+        ("start_date", start_date),
+        ("end_date", end_date),
+        ("mood", mood),
+        ("limit", limit if limit != 20 else None),
+        *[("tags", tag) for tag in tags],
+    ]
+    return build_page_url("/notes/pagination", page, params)
+
+
+@router.get("/pagination")
+async def read_notes_pagination(
+    request: Request,
+    search_term: str = Query(
+        None, description="Search term for note and summary content"
+    ),
+    start_date: str = Query(None, description="Start date"),
+    end_date: str = Query(None, description="End date"),
+    mood: str = Query(None, description="Mood"),
+    tags: list[str] = Query(default=[], description="Tags to filter by (OR logic)"),
+    page: int = Query(1, description="Page number"),
+    limit: int = Query(20, description="Number of notes per page"),
+    user_info: dict = Depends(check_login),
+):
+    user_identifier = user_info["user_identifier"]
+    user_timezone = user_info["timezone"]
+
+    logger.info(
+        f"Searching content: {search_term!r}, tags: {tags}, start_date: {start_date}, "
+        f"end_date: {end_date}, mood: {mood}, user: {user_identifier}"
+    )
+
+    # Base SQL query — mood, dates, and tags are filterable at the DB level
+    query = Select(Notes).where(Notes.user_id == user_identifier)
+    query = _apply_notes_filters(query, tags, mood, start_date, end_date)
+    query = query.order_by(Notes.date_created.desc())
+
+    offset = (page - 1) * limit
+    notes, note_count, total_pages = await _fetch_notes_page(
+        query, search_term, page, limit
+    )
+
+    notes = date_functions.update_timezone_for_dates(
         data=notes, user_timezone=user_timezone
     )
 
     found = len(notes)
 
-    def _page_url(p: int) -> str:
-        pairs = [("page", p)]
-        if search_term:
-            pairs.append(("search_term", search_term))
-        if start_date:
-            pairs.append(("start_date", start_date))
-        if end_date:
-            pairs.append(("end_date", end_date))
-        if mood:
-            pairs.append(("mood", mood))
-        if limit != 20:
-            pairs.append(("limit", limit))
-        for tag in tags:
-            pairs.append(("tags", tag))
-        return "/notes/pagination?" + urlencode(pairs)
-
-    prev_page_url = _page_url(page - 1) if page > 1 else None
-    next_page_url = _page_url(page + 1) if page < total_pages else None
+    prev_page_url = (
+        _build_pagination_url(
+            page - 1, search_term, start_date, end_date, mood, limit, tags
+        )
+        if page > 1
+        else None
+    )
+    next_page_url = (
+        _build_pagination_url(
+            page + 1, search_term, start_date, end_date, mood, limit, tags
+        )
+        if page < total_pages
+        else None
+    )
 
     logger.info(
         f"Found {note_count} notes for user {user_identifier} (page {page}/{total_pages})"
@@ -833,8 +850,8 @@ async def read_today_notes(
     user_timezone = user_info["timezone"]
 
     if user_identifier is None:
-        logger.debug("User identifier is None, redirecting to login")
-        return RedirectResponse(url="/users/login", status_code=302)
+        logger.debug(USER_IDENTIFIER_NONE_MSG)
+        return RedirectResponse(url=USERS_LOGIN_URL, status_code=302)
 
     # get today's date
     today = datetime.now(timezone.utc)
@@ -843,12 +860,6 @@ async def read_today_notes(
     start_date = today - timedelta(days=settings.history_range)
     end_date = today + timedelta(days=settings.history_range)
 
-    # query = Select(Notes).where(
-    #     and_(
-    #         Notes.user_id == user_identifier,
-    #         between(Notes.date_created, start_date, end_date),
-    #     )
-    # )
     query = (
         Select(Notes)
         .where(
@@ -882,7 +893,7 @@ async def read_today_notes(
     notes = [note.to_dict() for note in notes]
 
     metrics = {"word_count": 0, "note_count": len(notes), "character_count": 0}
-    notes = await date_functions.update_timezone_for_dates(
+    notes = date_functions.update_timezone_for_dates(
         data=notes, user_timezone=user_timezone
     )
     logger.info(f"Found {len(notes)} notes for user {user_identifier}")
@@ -928,16 +939,16 @@ async def read_note(
 
     if note is None:
         logger.warning(f"No note found with ID: {note_id} for user: {user_identifier}")
-        return RedirectResponse(url="/notes", status_code=302)
+        return RedirectResponse(url=NOTES_URL, status_code=302)
 
     note = note.to_dict()
     # offset date_created and date_updated to user's timezone
-    note["date_created"] = await date_functions.timezone_update(
+    note["date_created"] = date_functions.timezone_update(
         user_timezone=user_timezone,
         date_time=note["date_created"],
         friendly_string=True,
     )
-    note["date_updated"] = await date_functions.timezone_update(
+    note["date_updated"] = date_functions.timezone_update(
         user_timezone=user_timezone,
         date_time=note["date_updated"],
         friendly_string=True,
