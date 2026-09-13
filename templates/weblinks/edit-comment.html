@@ -1,0 +1,96 @@
+{% extends "base_app.html" %}
+{% block page_title %}| WebLink{% endblock %}
+{% block page_stylesheet %}
+<!-- page stylesheets-->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.css" />
+<!-- <style>.CodeMirror, .editor-preview-side {
+      width: 50% !important;
+  }</style> -->
+{% endblock %}
+{% block page_breadcrumb %} WebLink / Edit{% endblock %}
+{% block page_head_title %}WebLink{% endblock %}
+{% block body %}
+<!-- Main content -->
+<div class="row">
+    <!-- left column -->
+    <div class="col-12">
+        <!-- general form elements -->
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">Update WebLink</h3>
+            </div>
+            <!-- /.card-header -->
+            <!-- form start -->
+            <div class="col-12">
+                <form action="/weblinks/update/comment/{{ weblink.pkid }}" method="post" enctype="multipart/form-data" hx-indicator=".htmx-indicator">
+                    <div class="mb-2">
+                        <div class="row">
+                            <div class="col-sm-4">
+                                <label for="url" class="col-form-label">URL: </label>
+                                <input class="form-control" type="text" name="url" id="url"
+                                    placeholder="https://example.com/interesting-thing" value="{{ weblink.url }}" required>
+                            </div>
+                            <div class="col-sm-4">
+                                <label for="category" class="col-form-label">Category: </label>
+                                <select id="category" class="form-select" name="category" required>
+                                    <option value="">Select Category</option>
+                                    {% for category in categories %}
+                                    <option value="{{ category }}" {% if category==weblink.category %}selected{% endif %}>{{ category
+                                        }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-sm-4">
+                                <label for="public" class="col-form-label">Public: </label>
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" name="public" id="public" {% if weblink.public
+                                        %}checked{% endif %}>
+                                    <label class="form-check-label" for="public">Yes</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- New textarea for comments -->
+                    <div class="mb-2">
+                        <label for="comment" class="col-form-label">Comment: </label>
+                        <textarea class="form-control" name="comment" id="comment" rows="4" maxlength="1000"
+                            placeholder="Enter your comment here...">{{ weblink.comment }}</textarea>
+                    </div>
+                    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+                    <script>
+                        $(document).ready(function () {
+                            $.getJSON('/weblinks/categories', function (data) {
+                                $.each(data, function (index, value) {
+                                    var selected = value === "{{ weblink.category }}" ? "selected" : "";
+                                    $('#category').append('<option value="' + value + '" ' + selected + '>' + value + '</option>');
+                                });
+                            });
+                        });
+                    </script>
+                    <div class="input-group mb-2">
+                        <button type="submit" class="btn btn-primary btn-block" title="Update WebLink">Update WebLink</button>
+                    </div>
+                </form>
+
+                <!-- Delete Button with Confirmation -->
+                <div class="input-group mb-2">
+                    <button type="button" class="btn btn-danger btn-block" onclick="confirmDelete()" title="Delete WebLink">
+                        <i class="fas fa-trash"></i> Delete WebLink
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+<!-- page scripts-->
+<script>
+function confirmDelete() {
+    if (confirm('Are you sure you want to delete this weblink? This action cannot be undone.')) {
+        window.location.href = '/weblinks/delete/{{ weblink.pkid }}';
+    }
+}
+</script>
+{% endblock %}

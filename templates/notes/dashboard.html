@@ -1,0 +1,352 @@
+{% extends "base_app.html" %} <!-- Extends the base HTML layout -->
+{% block page_title %}| Dashboard{% endblock %} <!-- Sets the page title -->
+{% block page_breadcrumb %} Dashboard{% endblock %} <!-- Sets the breadcrumb -->
+{% block page_head_title %}Dashboard{% endblock %} <!-- Sets the page head title -->
+{% block body %} <!-- Starts the block for the body of the page -->
+<div class="container-fluid">
+  <div hx-get="/notes/metrics/counts" hx-trigger="load" hx-indicator=".htmx-indicator">Loading....</div>
+  {% include 'notes/charting.html' %}
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+<!-- Start of page scripts block -->
+<!-- Mood Trend by Month -->
+<script>
+  // Data for the chart
+  const metricsMood = {{ metrics.mood_trend_by_month | safe }};
+  const metricsMoodMedian = {{ metrics.mood_trend_by_median_month | safe }};
+  const metricsMoodRollingMean = {{ metrics.mood_trend_by_rolling_mean_month | safe }};
+  const metricsMoodAnalysis = {{ metrics.mood_analysis_trend_by_mean_month | safe }};
+  const moodTakeawayMonths = {{ mood_takeaway_months if mood_takeaway_months else 3 }};
+  // Create a function to generate a chart
+  function createMoodChart(elementId, metrics, metricsMedian, metricsRollingMean, metricsAnalysis) {
+    const labels = Object.keys(metrics);
+    const moodAverages = labels.map(label => metrics[label]);
+    const moodMedians = labels.map(label => metricsMedian[label]);
+    const moodRollingMeans = labels.map(label => metricsRollingMean[label] || null);
+    const moodAnalysisMeans = labels.map(label => metricsAnalysis[label] || null);
+
+    const datasets = [
+      {
+        yAxisID: 'y1',
+        type: 'line',
+        label: 'Rolling Mean',
+        data: moodRollingMeans,
+        fill: false,
+        borderColor: 'rgb(255, 165, 0)' // orange line for rolling mean values
+      },
+      {
+        yAxisID: 'y1',
+        type: 'line',
+        label: 'Median',
+        data: moodMedians,
+        fill: false,
+        borderColor: 'rgb(0, 0, 255)' // blue line for median values
+      },
+      {
+        yAxisID: 'y1',
+        type: 'bar',
+        label: 'Average',
+        data: moodAverages,
+        backgroundColor: moodAverages.map(value => {
+          if (value < 0) {
+            return 'rgb(255, 0, 0)'; // red for negative values
+          } else if (value < 0.5) {
+            return 'rgb(255, 255, 0)'; // yellow for values between 0 and 0.5
+          } else {
+            return 'rgb(0, 255, 0)'; // green for values greater than 0.5
+          }
+        }),
+      },
+      {
+        yAxisID: 'y1',
+        type: 'line',
+        label: 'Mood Analysis Mean',
+        data: moodAnalysisMeans,
+        fill: false,
+        borderColor: 'rgb(128, 0, 128)' // purple line for mood analysis mean values
+      }
+    ];
+
+    const data = {
+      labels: labels,
+      datasets: datasets
+    };
+
+    const config = {
+      type: 'bar',
+      data: data,
+      options: {
+        responsive: true,
+        scales: {
+          y1: {
+            type: 'linear',
+            display: true,
+            position: 'left',
+            min: -1,
+            max: 1
+          }
+        },
+        plugins: {
+          title: {
+            display: true,
+            text: 'Mood Trend by Month'
+          },
+          zoom: {
+            pan: {
+              enabled: true,
+              mode: 'x'
+            },
+            zoom: {
+              wheel: {
+                enabled: true,
+              },
+              pinch: {
+                enabled: true
+              },
+              mode: 'x'
+            }
+          }
+        },
+        interaction: {
+          intersect: true,
+        }
+      }
+    };
+
+    new Chart(document.getElementById(elementId), config);
+  }
+
+  // Create the chart
+  createMoodChart('moodTrendChart', metricsMood, metricsMoodMedian, metricsMoodRollingMean, metricsMoodAnalysis);
+
+  const moodTakeawayEl = document.getElementById('mood-takeaway-text');
+  if (moodTakeawayEl) {
+    const trendValues = Object.values(metricsMood || {}).filter(v => typeof v === 'number');
+    if (trendValues.length >= 2) {
+      const recentWindow = trendValues.slice(-Math.max(1, moodTakeawayMonths));
+      const first = recentWindow[0];
+      const last = recentWindow[recentWindow.length - 1];
+      const delta = Number((last - first).toFixed(3));
+
+      let direction = 'stable';
+      if (delta > 0.1) {
+        direction = 'improving';
+      } else if (delta < -0.1) {
+        direction = 'declining';
+      }
+
+      const spanMonths = recentWindow.length;
+      if (direction === 'improving') {
+        moodTakeawayEl.textContent = `Mood trend is improving over the last ${spanMonths} months (delta ${delta}). Keep reinforcing the routines that are working.`;
+      } else if (direction === 'declining') {
+        moodTakeawayEl.textContent = `Mood trend is declining over the last ${spanMonths} months (delta ${delta}). Consider a quick check-in on stress, sleep, and workload patterns.`;
+      } else {
+        moodTakeawayEl.textContent = `Mood trend is mostly stable over the last ${spanMonths} months (delta ${delta}). Consistency looks strong.`;
+      }
+    }
+  }
+</script>
+<!-- Notes by Month -->
+<script>
+  // Data for the chart
+  const metricsMonth = {{ metrics.note_count_by_month| safe}};
+
+  // Create a function to generate a chart
+  function createChart(elementId, metrics) {
+    const labels = Object.keys(metrics);
+    const noteCounts = labels.map(label => metrics[label].note_count);
+    const wordCounts = labels.map(label => metrics[label].word_count);
+
+    const data = {
+      labels: labels,
+      datasets: [
+        {
+          yAxisID: 'y1',
+          type: 'bar',
+          label: 'Note Count',
+          data: noteCounts,
+          backgroundColor: 'rgb(75, 192, 192)',
+          order: 2
+        },
+        {
+          yAxisID: 'y2',
+          type: 'line',
+          label: 'Word Count',
+          data: wordCounts,
+          borderColor: 'rgb(255, 99, 132)',
+          fill: false,
+          order: 1
+        }
+      ]
+    };
+
+    const config = {
+      type: 'bar',
+      data: data,
+      options: {
+        responsive: true,
+        scales: {
+          y1: {
+            type: 'linear',
+            display: true,
+            position: 'left',
+          },
+          y2: {
+            type: 'linear',
+            display: true,
+            position: 'right',
+            grid: {
+              drawOnChartArea: false, // only want the grid lines for one axis to show up
+            },
+          },
+        },
+        plugins: {
+          title: {
+            display: true,
+            text: 'Notes by Month'
+          }
+        },
+        interaction: {
+          intersect: true,
+        }
+      }
+    };
+
+    new Chart(document.getElementById(elementId), config);
+  }
+
+  // Create the chart
+  createChart('monthChart', metricsMonth);
+</script>
+<!-- Activity by Day of Week -->
+<script>
+  const activityByDay = {{ (metrics.activity_by_day_of_week or {}) | tojson | safe }};
+  const dayLabels = Object.keys(activityByDay);
+  const dayValues = Object.values(activityByDay);
+
+  if (document.getElementById('activityDayChart')) {
+    new Chart(document.getElementById('activityDayChart'), {
+      type: 'bar',
+      data: {
+        labels: dayLabels,
+        datasets: [{
+          label: 'Notes',
+          data: dayValues,
+          backgroundColor: 'rgba(54, 162, 235, 0.65)',
+          borderColor: 'rgba(54, 162, 235, 1)',
+          borderWidth: 1,
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { title: { display: true, text: 'Activity by Day of Week' } },
+        scales: { y: { beginAtZero: true } }
+      }
+    });
+  }
+</script>
+<!-- Activity by Hour -->
+<script>
+  const activityByHour = {{ (metrics.activity_by_hour or {}) | tojson | safe }};
+  const hourLabels = Object.keys(activityByHour);
+  const hourValues = Object.values(activityByHour);
+
+  if (document.getElementById('activityHourChart')) {
+    new Chart(document.getElementById('activityHourChart'), {
+      type: 'line',
+      data: {
+        labels: hourLabels,
+        datasets: [{
+          label: 'Notes',
+          data: hourValues,
+          fill: true,
+          borderColor: 'rgba(255, 159, 64, 1)',
+          backgroundColor: 'rgba(255, 159, 64, 0.2)',
+          tension: 0.25,
+          pointRadius: 2,
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { title: { display: true, text: 'Activity by Hour' } },
+        scales: { y: { beginAtZero: true } }
+      }
+    });
+  }
+</script>
+<!-- Mood-Tag Correlation -->
+<script>
+  const moodTagCorrelation = {{ (metrics.mood_tag_correlation or {}) | tojson | safe }};
+  const positiveTags = moodTagCorrelation.positive || {};
+  const negativeTags = moodTagCorrelation.negative || {};
+  const moodTagLabels = Array.from(new Set([...Object.keys(positiveTags), ...Object.keys(negativeTags)])).slice(0, 10);
+
+  if (document.getElementById('moodTagChart')) {
+    new Chart(document.getElementById('moodTagChart'), {
+      type: 'bar',
+      data: {
+        labels: moodTagLabels,
+        datasets: [
+          {
+            label: 'Positive',
+            data: moodTagLabels.map(tag => positiveTags[tag] || 0),
+            backgroundColor: 'rgba(40, 167, 69, 0.65)',
+          },
+          {
+            label: 'Negative',
+            data: moodTagLabels.map(tag => negativeTags[tag] || 0),
+            backgroundColor: 'rgba(220, 53, 69, 0.65)',
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: { title: { display: true, text: 'Top Tags by Positive vs Negative Mood' } },
+        scales: { y: { beginAtZero: true } }
+      }
+    });
+  }
+</script>
+<!-- Word Trend by Month -->
+<script>
+  const wordTrendByMonth = {{ (metrics.word_trend_by_month or {}) | tojson | safe }};
+  const wordTrendLabels = Object.keys(wordTrendByMonth);
+
+  if (document.getElementById('wordTrendChart')) {
+    new Chart(document.getElementById('wordTrendChart'), {
+      data: {
+        labels: wordTrendLabels,
+        datasets: [
+          {
+            type: 'line',
+            label: 'Avg Words / Note',
+            data: wordTrendLabels.map(month => wordTrendByMonth[month]?.avg_words_per_note || 0),
+            borderColor: 'rgba(23, 162, 184, 1)',
+            backgroundColor: 'rgba(23, 162, 184, 0.2)',
+            fill: true,
+            yAxisID: 'y1',
+          },
+          {
+            type: 'bar',
+            label: 'Total Words',
+            data: wordTrendLabels.map(month => wordTrendByMonth[month]?.total_words || 0),
+            backgroundColor: 'rgba(108, 117, 125, 0.5)',
+            yAxisID: 'y2',
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: { title: { display: true, text: 'Word Trend by Month' } },
+        scales: {
+          y1: { type: 'linear', position: 'left', beginAtZero: true },
+          y2: { type: 'linear', position: 'right', beginAtZero: true, grid: { drawOnChartArea: false } }
+        }
+      }
+    });
+  }
+</script>
+{% endblock %}
+<!-- End of page scripts block -->

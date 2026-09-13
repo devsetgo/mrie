@@ -1,10 +1,10 @@
 [project]
 name = "MikeRyan.ie"
 version = "2024.11.17.1"
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 description = "MikeRyan.ie website"
 readme = "README.md"
-classifiers = [ "License :: OSI Approved :: MIT License", "Programming Language :: Python", "Programming Language :: Python :: 3.12", "Operating System :: POSIX :: Linux", "Operating System :: POSIX",]
+classifiers = [ "License :: OSI Approved :: MIT License", "Programming Language :: Python", "Programming Language :: Python :: 3.14", "Operating System :: POSIX :: Linux", "Operating System :: POSIX",]
 [[project.authors]]
 name = "Mike Ryan"
 email = "mikeryan56@gmail.com"
@@ -24,7 +24,7 @@ Repository = "https://github.com/devsetgo/mrie"
 
 [tool.pyright]
 typeCheckingMode = "strict"
-pythonVersion = "3.12"
+pythonVersion = "3.14"
 include = [ "src", "test",]
 exclude = [ "unreleased/*", "scripts/*", "coverage.xml", "coverage-badge.svg",]
 reportMissingImports = true
@@ -45,11 +45,19 @@ reportUnusedVariable = true
 reportDuplicateImport = true
 reportPrivateUsage = true
 
+[tool.black]
+# Without this, black auto-detects a target version per file and guessed
+# py315 for at least one file here, which its own AST safety-check then
+# can't parse under the Python 3.14 this project/CI actually run on
+# ("Python 3.14 cannot parse code formatted for Python 3.15") - pin it to
+# match [tool.ruff]'s target-version below.
+target-version = [ "py314",]
+
 [tool.ruff]
 line-length = 100
 indent-width = 4
 unsafe-fixes = true
-target-version = "py312"
+target-version = "py314"
 src = [ "src", "test",]
 exclude = [ "unreleased/*", "scripts/*", "coverage.xml", "coverage-badge.svg",]
 

@@ -1,0 +1,64 @@
+# Version control - large, never needed inside the image
+.git/
+.gitignore
+
+# Secrets - .env holds real credentials (DB, PHRASE/SALT, OpenAI key,
+# GitHub OAuth, etc.). It must never be baked into an image layer;
+# docker-compose.yml mounts it at container *run* time via `env_file:`
+# instead, straight from the host.
+.env
+
+# Python build/runtime artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.installed.cfg
+
+# Test/lint/coverage tooling and output - only requirements/prd.txt is
+# installed in the image (see dockerfile), so pytest/ruff/black and every
+# dev-only dependency never run here, and none of their output is needed.
+tests/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+coverage-badge.svg
+.pre-commit-config.yaml
+requirements/dev.txt
+
+# mrie-specific local dev artifacts (see .gitignore for the full story on
+# each of these) - none of them belong in a shipped image.
+sqlite_db/
+logs/
+static/uploads/
+
+# Dev container / editor / IDE
+.devcontainer/
+.vscode/
+.idea/
+
+# Docs - no runtime value
+CLAUDE.md
+PROJECT_STATUS.md
+README.md
+
+# Docker/CI plumbing itself - not needed inside the image it produces
+dockerfile
+Dockerfile
+docker-compose.yml
+.dockerignore
+makefile
+Makefile
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.bak
+*.tmp
+*.temp

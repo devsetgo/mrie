@@ -1,0 +1,10 @@
+<div class="col-md-12">
+    <label>Note:</label>
+    <br>
+    <textarea id="hiddenTextarea" style="display: none;">{{ note.note|safe }}</textarea>
+    <div id="noteDisplay"></div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+    document.getElementById('noteDisplay').innerHTML = marked.parse(document.getElementById('hiddenTextarea').value);
+</script>

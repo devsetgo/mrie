@@ -1,0 +1,33 @@
+<!-- Begin Pagination Template -->
+{% include 'notes/page-controls.html' %}
+<!-- Begin Cards -->
+<div class="row">
+  <div class="col-12">
+    <h5 class="text-center">Use the search to filter on terms, dates, and/or mood.</h5>
+  </div>
+  {% for note in notes %}
+  <div class="col-md-4 mb-4 p-2">
+    <div class="card">
+      <div class="card-body">
+        <h5 class="card-title"><a href="/notes/view/{{note.pkid}}" class="card-link"><strong>{{
+              note.mood|capitalize }}</strong></a></h5>
+        <p class="card-text">{{ note.summary|truncate(30, end='...') }}</p>
+      </div>
+      <ul class="list-group list-group-flush">
+        <li class="list-group-item">{% for tag in note.tags %}{{ tag|capitalize }}{% if not loop.last %}, {%
+          endif %}{%
+          endfor %}</li>
+      </ul>
+      <div class="card-body">
+        <p class="card-text"><small>{{ note.date_created }}</small>
+          <br>
+          <small><strong>Words:</strong> {{ note.word_count }} | <strong>Characters:</strong> {{ note.character_count
+            }} {% if note.ai_fix %} | <a href="/notes/ai-resubmit/{{note.pkid}}"><strong>AI Issue</strong></a>{% endif %}</small>
+        </p>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% include 'notes/page-controls.html' %}
+<!-- End Pagination Template -->

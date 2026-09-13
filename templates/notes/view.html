@@ -1,0 +1,143 @@
+{% extends "base_app.html" %}
+{% block page_title %}| Notes{% endblock %}
+{% block page_stylesheet %}
+<!-- page stylesheets-->
+
+<style>
+    #requirements {
+        width: 100%;
+        /* or any other value that suits your needs */
+    }
+</style>
+{% endblock %}
+{% block page_breadcrumb %} Notes / View{% endblock %}
+{% block page_head_title %}View Note{% endblock %}
+{% block body %}
+<!-- Main content -->
+<div class="row">
+    <!-- left column -->
+    <div class="col-12">
+        <!-- general form elements -->
+        <div class="card" style="margin: 20px;">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h3 class="card-title mb-0">View Note</h3>
+                <div class="d-flex align-items-center ms-auto">
+                    <a href="/notes/edit/{{ note.pkid }}" class="btn btn-warning ms-2" title="Edit"><i
+                            class="fa-solid fa-pen-to-square fa-lg text-white"></i></a>
+                    <a href="/notes/delete/{{ note.pkid }}" class="btn btn-danger ms-2" title="Delete"><i
+                            class="fa-solid fa-trash fa-lg text-white"></i></a>
+                    {% if request.session.is_admin is true %}
+                    <a href="/notes/ai-fix/{{note.pkid}}" class="btn {{ 'btn-danger' if note.ai_fix else 'btn-success' }} ms-2" title="Send to AI Fix"><i
+                            class="fa-solid fa-robot fa-lg text-white"></i></a>
+                    {%endif%}
+                </div>
+            </div>
+            <!-- /.card-header -->
+            <!-- form start -->
+            <div class="row">
+                <div class="col-12">
+                    <!-- Nav tabs -->
+                    <ul class="nav nav-tabs" id="myTab" role="tablist">
+                        <li class="nav-item">
+                            <a class="nav-link active" id="details-tab" data-bs-toggle="tab" href="#details"
+                                role="tab" aria-controls="details" aria-selected="true">Details</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" id="info-tab" data-bs-toggle="tab" href="#info" role="tab"
+                                aria-controls="info" aria-selected="false">Info</a>
+                        </li>
+                    </ul>
+                    <!-- Tab panes -->
+                    <div class="tab-content">
+                        <div class="tab-pane active" id="details" role="tabpanel" aria-labelledby="details-tab">
+                            <!-- Begin Details Section -->
+                            <div class="row bg-body-secondary" style="padding: 20px; margin: 10px;">
+                                <!-- Begin Optional Fields to View -->
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="summaryInput">Summary</label>
+                                        {% if note.summary == "Processing..." %}
+                                        <p class="text-muted">
+                                            <i class="fas fa-spinner fa-spin"></i> Processing...
+                                            <small class="text-info">(AI analysis in progress)</small>
+                                        </p>
+                                        {% else %}
+                                        <p>{{ note.summary | safe }}</p>
+                                        {% endif %}
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="tags">Tags</label>
+                                        {% if note.tags|length == 0 and note.summary == "Processing..." %}
+                                        <p class="text-muted">
+                                            <i class="fas fa-spinner fa-spin"></i> Processing...
+                                        </p>
+                                        {% else %}
+                                        <p>{% for tag in note.tags %}{{ tag|capitalize }}{% if not loop.last %},
+                                            {%
+                                            endif %}{%
+                                            endfor %}</p>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label><strong>Mood Analysis:</strong></label>
+                                        {% if note.mood_analysis == "processing" %}
+                                        <p class="text-muted">
+                                            <i class="fas fa-spinner fa-spin"></i> Processing...
+                                        </p>
+                                        {% else %}
+                                        <p>{{ note.mood_analysis |capitalize}}</p>
+                                        {% endif %}
+                                    </div>
+                                    <div class="mb-3">
+                                        <label><strong>Current Mood:</strong></label>
+                                        <p>{{ note.mood |capitalize}}</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- End Details Section -->
+                        </div>
+                        <div class="tab-pane" id="info" role="tabpanel" aria-labelledby="info-tab">
+                            <!-- Begin Info Section -->
+                            <div class="row bg-body-secondary" style="padding: 20px; margin: 10px;">
+                                <div class="col-md-6">
+                                    <p>Date Created: {{ note.date_created }}</p>
+                                    <p>Date Updated: {{ note.date_updated }}</p>
+                                </div>
+                                <div class="col-md-6">
+                                    <p>Word Count: {{ note.word_count }}</p>
+                                    <p>Character Count: {{ note.character_count }}</p>
+                                </div>
+                            </div>
+                            <!-- End Info Section -->
+                        </div>
+                    </div>
+                </div>
+                <div class="col-12">
+                    <!-- Begin Note Section -->
+                    <div class="row bg-body-tertiary" style="padding: 20px; margin: 10px;">
+                        {% include "notes/note_view_html.html" %}
+                    </div>
+                    <!-- End Note Section -->
+                </div>
+                <!-- /.col -->
+            </div>
+        </div>
+        <!-- /.card -->
+    </div>
+    <!-- /.row -->
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+<!-- page scripts-->
+{% if note.summary == "Processing..." or note.mood_analysis == "processing" %}
+<script>
+// Auto-refresh the page when AI processing is in progress
+setTimeout(function() {
+    location.reload();
+}, 5000); // Refresh every 5 seconds
+</script>
+{% endif %}
+{% endblock %}

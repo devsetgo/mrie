@@ -1,0 +1,65 @@
+{% extends "base_app.html" %}
+{% block page_title %}| History{% endblock %}
+{% block page_breadcrumb %} History{% endblock %}
+{% block page_head_title %}History{% endblock %}
+{% block body %}
+<!-- Begin Metrics Metrics Info-Box -->
+<div class="row" id="counts-metrics">
+  <div class="col-12">
+    <div class="row" id="mood-metrics">
+      <div class="info-box bg-success">
+        <span class="info-box-icon"><i class="far fa-smile"></i></span>
+        <div class="info-box-content">
+          <span class="info-box-text">Note Count</span>
+          <span class="info-box-number">{{metrics.note_count}}</span>
+        </div>
+      </div>
+      <div class="info-box bg-warning">
+        <span class="info-box-icon"><i class="far fa-meh"></i></span>
+        <div class="info-box-content">
+          <span class="info-box-text">Word Count</span>
+          <span class="info-box-number">{{metrics.word_count}}</span>
+        </div>
+      </div>
+      <div class="info-box bg-danger">
+        <span class="info-box-icon"><i class="far fa-frown"></i></span>
+        <div class="info-box-content">
+          <span class="info-box-text">Character Count</span>
+          <span class="info-box-number">{{metrics.character_count}}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- End Metrics Info-Box -->
+<!-- Begin History Cards -->
+<div class="row">
+  <div class="col-12">
+    <h3 class="text-center">Looking back on {{ today }} <small>+/- {{range}} days</small></h3>
+  </div>
+  {% for note in notes %}
+  <div class="col-md-4 mb-4 p-2">
+    <div class="card">
+      <div class="card-body">
+        <h5 class="card-title"><a href="/notes/view/{{note.pkid}}" class="card-link"><strong>{{
+              note.mood|capitalize }}</strong></a></h5>
+        <p class="card-text">{{ note.summary|truncate(30, end='...') }}</p>
+      </div>
+      <ul class="list-group list-group-flush">
+        <li class="list-group-item">{% for tag in note.tags %}{{ tag|capitalize }}{% if not loop.last %}, {%
+          endif %}{%
+          endfor %}</li>
+      </ul>
+      <div class="card-body">
+        <p class="card-text"><small>{{ note.date_created }}</small>
+          <br>
+          <small><strong>Words:</strong> {{ note.word_count }} | <strong>Characters:</strong> {{ note.character_count
+            }}</small>
+        </p>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+<!-- End History Template -->
+{% endblock %}

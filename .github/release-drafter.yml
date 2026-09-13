@@ -1,0 +1,77 @@
+# Configuration for release-drafter/release-drafter
+# This file must live in the default branch at: .github/release-drafter.yml
+
+# mrie uses BumpCalver-style tags (e.g. 2024-11-17-001 - see
+# [tool.bumpcalver] in pyproject.toml), not SemVer. Release Drafter's
+# $RESOLVED_VERSION is SemVer-oriented and will fall back to v0.1.0 when it
+# can't infer a SemVer version from tags - that's fine here, since the
+# actual release tag is chosen by `make bumpcalver`/`bumpcalver`, not by
+# Release Drafter. We keep the draft title generic; the actual release tag
+# should be set when publishing the GitHub Release.
+name-template: "Release Notes (Draft)"
+
+autolabeler:
+  - label: 'breaking'
+    branch:
+      - '/^breaking[/-].+/'
+  - label: 'feature'
+    branch:
+      - '/^feat(ure)?[/-].+/'
+  - label: 'enhancement'
+    branch:
+      - '/^enhance[/-].+/'
+      - '/^improvement[/-].+/'
+  - label: 'bug'
+    branch:
+      - '/^(fix|bugfix|hotfix)[/-].+/'
+  - label: 'docs'
+    branch:
+      - '/^docs?[/-].+/'
+  - label: 'code improvements'
+    branch:
+      - '/^(refactor|optimize|perf|performance)[/-].+/'
+  - label: 'github actions'
+    branch:
+      - '/^(ci|actions?|workflow)[/-].+/'
+  - label: 'chore'
+    branch:
+      - '/^(chore|test|cleanup)[/-].+/'
+  - label: 'dependencies'
+    branch:
+      - '/^(dep|deps|bump|dependabot)[/-].+/'
+
+categories:
+  - title: "Breaking Changes"
+    labels:
+      - "breaking"
+  - title: "Features"
+    labels:
+      - "feature"
+      - "enhancement"
+  - title: "Bug Fixes"
+    labels:
+      - "bug"
+      - "fix"
+  - title: "Documentation"
+    labels:
+      - "docs"
+  - title: "Code Improvements"
+    labels:
+      - "code improvements"
+  - title: "GitHub Actions"
+    labels:
+      - "github actions"
+  - title: "Maintenance"
+    labels:
+      - "chore"
+      - "dependencies"
+
+change-template: "- $TITLE (#$NUMBER) (@$AUTHOR)"
+change-title-escapes: "<*_&"
+
+template: |
+  ## Changes
+  $CHANGES
+
+  ## Contributors
+  $CONTRIBUTORS

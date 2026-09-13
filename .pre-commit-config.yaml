@@ -1,9 +1,15 @@
 repos:
--   repo: https://github.com/ambv/black
-    rev: 23.1.0
+-   repo: https://github.com/psf/black
+    # Must stay in sync with requirements/dev.txt's black pin - 23.1.0 (the
+    # long-standing default) still references `ast.Str`, which Python 3.12+
+    # removed from the `ast` module entirely. That only ever failed in CI
+    # (a fresh hook env built against language_version: python3.14 below);
+    # locally it was masked by an already-built ~/.cache/pre-commit venv
+    # from before language_version was pinned to 3.14.
+    rev: 26.5.1
     hooks:
     - id: black
-      language_version: python3.12
+      language_version: python3.14
 -   repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.4.0
     hooks:

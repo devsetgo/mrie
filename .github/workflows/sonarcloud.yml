@@ -1,0 +1,66 @@
+name: SonarCloud
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, synchronize, reopened]
+jobs:
+  sonarcloud:
+    name: SonarCloud
+    runs-on: ubuntu-latest
+    # Skip SonarCloud for Dependabot PRs (secrets not available)
+    if: github.actor != 'dependabot[bot]'
+    env:
+      DB_DRIVER: memory
+      RELEASE_ENV: test
+      DEV_FAKE_LOGIN_ENABLED: "True"
+      HTTPS_ONLY: "False"
+      DB_USERNAME: ci
+      DB_PASSWORD: ci
+      DB_HOST: localhost
+      DB_PORT: "5432"
+      DB_NAME: ci
+      PHRASE: ci-test-phrase-not-a-real-secret
+      SALT: ci-test-salt-not-a-real-secret
+      ADMIN_USER: ci-admin
+      SESSION_SECRET_KEY: ci-test-session-secret-not-a-real-secret
+      REGISTRATION_BOOTSTRAP_TOKEN: ci-test-bootstrap-token
+      # Also required - Settings.openai_key is typed SecretStr with a `None`
+      # default, which pydantic only accepts because a real OPENAI_KEY is
+      # always present in the local .env; CI has no .env, so this must be
+      # supplied explicitly or Settings() fails to construct at import time,
+      # before any test runs (ai.py's own OpenAI calls are never exercised
+      # in this suite - see PROJECT_STATUS.md - so the value itself is unused).
+      OPENAI_KEY: ci-test-openai-key-not-a-real-secret
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements/dev.txt
+
+      - name: Run tests and generate coverage.xml
+        # pyproject.toml's own pytest addopts already include
+        # --cov=./ --cov-report=xml (see [tool.pytest.ini_options]), and
+        # [tool.coverage.run] scopes that to source=["src"] - so no addopts
+        # override or path-normalization is needed here, unlike projects
+        # whose package dir doesn't match their coverage source config.
+        run: PYTHONPATH=. pytest
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@v8.2.1
+        with:
+          projectBaseDir: .
+          args: >
+            -Dsonar.python.coverage.reportPaths=coverage.xml
+        env:
+          GITHUB_TOKEN: ${{ github.token }}  # Needed to get PR information, if any
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

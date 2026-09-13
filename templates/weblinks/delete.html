@@ -1,0 +1,77 @@
+{% extends "base_app.html" %}
+{% block page_title %}| WebLinks{% endblock %}
+{% block page_breadcrumb %} WebLinks / Delete{% endblock %}
+{% block page_head_title %}Delete WebLink{% endblock %}
+{% block body %}
+<!-- Main content -->
+<div class="row">
+  <!-- left column -->
+  <div class="col-12">
+    <!-- general form elements -->
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title">Delete WebLink</h3>
+      </div>
+      <!-- /.card-header -->
+      <!-- form start -->
+      <div class="row">
+        <div class="col-12">
+          <!-- Begin WebLink Section -->
+          <div class="row bg-body-tertiary" style="padding: 20px; margin: 10px;">
+            <div class="col-md-6">
+              <div class="mb-3">
+                <label>Title:</label>
+                <p>{{ weblink.title }}</p>
+              </div>
+              <div class="mb-3">
+                <label>URL:</label>
+                <p><a href="{{ weblink.url }}" target="_blank">{{ weblink.url }}</a></p>
+              </div>
+              <div class="mb-3">
+                <label>Summary:</label>
+                <p>{{ weblink.summary }}</p>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="mb-3">
+                <label>Comment:</label>
+                <p>{{ weblink.comment }}</p>
+              </div>
+              <div class="mb-3">
+                <label>Category:</label>
+                <p>{{ weblink.category }}</p>
+              </div>
+              <div class="mb-3">
+                <label>Date Created:</label>
+                <p>{{ weblink.date_created }}</p>
+              </div>
+            </div>
+          </div>
+          <!-- End WebLink Section -->
+        </div>
+      </div>
+      <div class="row">
+        <div class="alert alert-danger" role="alert">
+          <strong>Warning: Deleting a weblink cannot be undone.</strong>
+        </div>
+        <form action="/weblinks/delete/{{weblink.pkid}}" method="post">
+          <div class="mb-3">
+            <div class="form-check form-switch">
+              <input type="checkbox" class="form-check-input" id="deleteConfirm" name="deleteConfirm" required>
+              <label class="form-check-label" for="deleteConfirm">Confirm Deletion</label>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-danger">Delete WebLink</button>
+          <a href="/weblinks/view/{{weblink.pkid}}" class="btn btn-secondary">Cancel</a>
+        </form>
+      </div>
+      <!-- /.col -->
+    </div>
+  </div>
+  <!-- /.card -->
+</div>
+<!-- /.row -->
+{% endblock %}
+{% block page_scripts %}
+<!-- page scripts-->
+{% endblock %}

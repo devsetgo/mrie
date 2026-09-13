@@ -1,0 +1,65 @@
+{% extends "base_app.html" %}
+{% block page_title %}| Edit About{% endblock %}
+{% block page_breadcrumb %} About / Edit{% endblock %}
+{% block page_head_title %}Edit About Page{% endblock %}
+{% block page_stylesheet %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/Trumbowyg/2.27.3/ui/trumbowyg.min.css"
+    integrity="sha512-Fm8kRNVGCBZn0sPmwJbVXlqfJmPC13zRsMElZenX6v721g/H7OukJd8XzDEBRQ2FSATK8xNF9UYvzsCtUpfeJg=="
+    crossorigin="anonymous" referrerpolicy="no-referrer" />
+{% endblock %}
+{% block body %}
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h3 class="card-title mb-0">Edit About Page</h3>
+                <a href="/about" class="btn btn-success ms-2" title="View About Page">
+                    <i class="fa-solid fa-eye fa-lg text-white"></i>
+                </a>
+            </div>
+            <div class="card-body">
+                <form action="/about/edit" method="post">
+                    <div class="mb-3">
+                        <textarea id="content" name="content">{{ content | safe }}</textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Trumbowyg/2.27.3/trumbowyg.min.js"
+    integrity="sha512-YJgZG+6o3xSc0k5wv774GS+W1gx0vuSI/kr0E0UylL/Qg/noNspPtYwHPN9q6n59CTR/uhgXfjDXLTRI+uIryg=="
+    crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Trumbowyg/2.27.3/plugins/upload/trumbowyg.upload.min.js"
+    integrity="sha512-0Ax7SrxNwOb0s4mFVC5Vvn1wC6ts8ysma0OyNsXEXjygtnirRYF9Eg5Z1FPfXyoVRpsslvY/AQgoBY9u4sZKSw=="
+    crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script>
+  $(document).ready(function() {
+    $('#content').trumbowyg({
+      btns: [
+        ['viewHTML'],
+        ['undo', 'redo'],
+        ['formatting'],
+        ['strong', 'em'],
+        ['unorderedList', 'orderedList'],
+        ['justifyLeft', 'justifyCenter'],
+        ['insertImage', 'upload', 'link'],
+        ['removeformat'],
+        ['fullscreen']
+      ],
+      plugins: {
+        upload: {
+          serverPath: '/about/upload-image',
+          fileFieldName: 'fileToUpload',
+          urlPropertyName: 'url'
+        }
+      }
+    });
+  });
+</script>
+{% endblock %}

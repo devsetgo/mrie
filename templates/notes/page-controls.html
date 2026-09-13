@@ -1,0 +1,26 @@
+<!-- Pagination Controls -->
+<div class="row">
+    <div class="col-md-12">
+        <div class="container bg-body-tertiary">
+            <div class="d-flex align-items-center">
+                <nav aria-label="Page navigation example">
+                    <ul class="pagination mb-0">
+                        <li class="page-item {% if not prev_page_url %}disabled{% endif %}">
+                            <a class="page-link {% if prev_page_url %}bg-success text-white{% endif %}" href="#" {% if
+                                prev_page_url %}hx-get="{{ prev_page_url }}" hx-trigger="click" hx-target="#notes-data"
+                                hx-indicator=".htmx-indicator" {% endif %}>Previous</a>
+                        </li>
+                        <li class="page-item {% if not next_page_url %}disabled{% endif %}">
+                            <a class="page-link {% if next_page_url %}bg-success text-white{% endif %}" href="#" {% if
+                                next_page_url %}hx-get="{{ next_page_url }}" hx-trigger="click" hx-target="#notes-data"
+                                hx-indicator=".htmx-indicator" {% endif %}>Forward</a>
+                        </li>
+                    </ul>
+                </nav>
+                <div class="ms-3">
+                    <strong>{{start_count}} to {{current_count}}</strong> of <strong>{{note_count}}</strong> records
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

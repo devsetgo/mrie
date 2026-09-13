@@ -1,0 +1,185 @@
+{% extends "base_app.html" %}
+{% block page_title %}| Notes{% endblock %}
+{% block page_stylesheet %}
+<!-- page stylesheets-->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/Trumbowyg/2.27.3/ui/trumbowyg.min.css"
+    integrity="sha512-Fm8kRNVGCBZn0sPmwJbVXlqfJmPC13zRsMElZenX6v721g/H7OukJd8XzDEBRQ2FSATK8xNF9UYvzsCtUpfeJg=="
+    crossorigin="anonymous" referrerpolicy="no-referrer" />
+
+{% endblock %}
+{% block page_breadcrumb %} Notes / Edit{% endblock %}
+{% block page_head_title %}Edit Note{% endblock %}
+{% block body %}
+<!-- Main content -->
+<div class="row">
+    <!-- left column -->
+    <div class="col-12">
+        <!-- general form elements -->
+        <div class="card" style="margin: 20px;">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h3 class="card-title mb-0">Edit Note</h3>
+                <div class="d-flex align-items-center ms-auto">
+                    <div class="form-check form-switch">
+                        <input type="checkbox" class="form-check-input" id="editSwitch">
+                        <label class="form-check-label" for="editSwitch">Edit</label>
+                    </div>
+                    <a href="/notes/view/{{ note.pkid }}" class="btn btn-success ms-2"><i
+                            class="fa-solid fa-file" style="color:black;"></i></a>
+                </div>
+            </div>
+            <!-- /.card-header -->
+            <!-- form start -->
+            <div class="row">
+                <div class="col-12">
+                    <form action="/notes/edit/{{ note.pkid }}" method="POST" enctype="multipart/form-data"
+                        hx-indicator=".htmx-indicator">
+                        <div class="row">
+                            <!-- Begin Optional Fields to Edit -->
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="summaryInput">Summary</label>
+                                    <input type="text" class="form-control" id="summary" name="summary"
+                                        placeholder="Enter summary" value="{{ note.summary }}" readonly>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="tags">Tags</label>
+                                    <input type="text" class="form-control" id="tags" name="tags"
+                                        placeholder="Enter tags"
+                                        value="{% for tag in note.tags %}{{ tag }}{% if not loop.last %}, {% endif %}{% endfor %}"
+                                        readonly>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="moodAnalysisSelect"><strong>Mood Analysis:</strong></label>
+                                    <select class="form-select" id="moodAnalysisSelect" name="mood_analysis"
+                                        disabled>
+                                        {% for mood in mood_analysis %}
+                                        <option value="{{ mood }}" {% if mood==note.mood_analysis %}selected{%
+                                            endif %}>{{ mood |capitalize}}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label><strong>Current Mood:</strong></label>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" name="mood" id="positive"
+                                            value="positive" {% if note.mood=='positive' %}checked{% endif %}
+                                            disabled>
+                                        <label class="form-check-label" for="positive">Positive</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" name="mood" id="neutral"
+                                            value="neutral" {% if note.mood=='neutral' %}checked{% endif %}
+                                            disabled>
+                                        <label class="form-check-label" for="neutral">Neutral</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" name="mood" id="negative"
+                                            value="negative" {% if note.mood=='negative' %}checked{% endif %}
+                                            disabled>
+                                        <label class="form-check-label" for="negative">Negative</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- End Optional Fields to Edit -->
+                        <div class="input-group mb-5">
+                            <textarea id="content" name="note" maxlength="20000">{{note.note|safe}}</textarea>
+                            <small id="notesHelp" class="form-text text-muted">Note: This textarea is limited to
+                                20,000 characters.</small>
+                            <small id="charCount" class="form-text text-muted">Character count: 0</small>
+                        </div>
+                        <div class="input-group mb-5">
+                            <button type="submit" class="btn btn-primary btn-block" title="Update Note">Update
+                                Note</button>
+                            <input type="hidden" name="pkid" value="{{ note.pkid }}">
+                        </div>
+                    </form>
+                </div>
+            </div>
+            <!-- /.col -->
+        </div>
+    </div>
+    <!-- /.card -->
+</div>
+<!-- /.row -->
+{% endblock %}
+
+{% block page_scripts %}
+<!-- page scripts-->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Trumbowyg/2.27.3/trumbowyg.min.js"
+    integrity="sha512-YJgZG+6o3xSc0k5wv774GS+W1gx0vuSI/kr0E0UylL/Qg/noNspPtYwHPN9q6n59CTR/uhgXfjDXLTRI+uIryg=="
+    crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Trumbowyg/2.27.3/plugins/preformatted/trumbowyg.preformatted.min.js"
+    integrity="sha512-jbGHfPlSvCf9wKx1/E61iNL+MbzEYB4PKwjlEWfZzHzfThYGqPtNdGNOu0NlxLoQdGt6Vq7PVQXJVtrtNXUy8w=="
+    crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Trumbowyg/2.27.3/plugins/noembed/trumbowyg.noembed.min.js"
+    integrity="sha512-nddqNljM+0Sf1ZYdewcP6/xxBH3XXz4m+N4Y57nVgHHePlVWNpXeTMSanARtcFTxHDmajU/huyT0IoPWbc7DOw=="
+    crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script>
+  $(document).ready(function() {
+    // Initialize Trumbowyg
+    $('#content').trumbowyg({
+      btns: [
+        ['strong', 'em'],
+        ['justifyLeft', 'justifyCenter'],
+        ['insertImage', 'link'],
+        ['noembed'],
+        ['preformatted'],
+        ['viewHTML'],
+        ['removeformat'],
+        ['fullscreen']
+      ]
+    });
+
+    // Set initial character count
+    var $textarea = $('#content');
+    var $charCount = $('#charCount');
+    $charCount.text("Character count: " + $textarea.val().length);
+
+    // Character count logic
+    $textarea.on('input', function () {
+      var chars = $textarea.val().length;
+      if (chars > 20000) {
+        $textarea.val($textarea.val().slice(0, 20000));
+        chars = 20000;
+      }
+      $charCount.text("Character count: " + chars);
+    });
+
+    // Form validation
+    $('form').on('submit', function (e) {
+      if ($('#content').trumbowyg('html').trim() === '') {
+        e.preventDefault();
+        alert('Please enter a note.');
+      }
+    });
+
+    // Edit switch logic
+    $('#editSwitch').on('change', function () {
+      var isEditable = this.checked;
+      $('input, select').each(function() {
+        if (this.type !== 'checkbox') {
+          if (this.tagName === 'SELECT' || this.type === 'radio') {
+            this.disabled = !isEditable;
+          } else {
+            this.readOnly = !isEditable;
+          }
+        }
+      });
+      if (isEditable) {
+        $('#content').trumbowyg('enable');
+      } else {
+        $('#content').trumbowyg('disable');
+      }
+    });
+
+    // Set initial state of Trumbowyg based on editSwitch
+    if (!$('#editSwitch').is(':checked')) {
+      $('#content').trumbowyg('disable');
+    }
+  });
+</script>
+{% endblock %}

@@ -1,0 +1,241 @@
+{% set qp = request.query_params %}
+{% set has_more_filters = qp.get('start_date') or qp.get('end_date') or qp.getlist('tags') %}
+<div class="col-md-12">
+    <div class="card">
+        <div class="card-body">
+            <!-- Begin Search Form -->
+            <form id="notes-search-form" hx-get="/notes/pagination" hx-trigger="submit" hx-target="#notes-data"
+                  hx-indicator=".htmx-indicator" hx-push-url="true">
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-5">
+                        <label for="search_term">Text Search</label>
+                        <input id="search_term" class="form-control" type="search" name="search_term"
+                            placeholder="Search note content and summary..." value="{{ qp.get('search_term', '') }}">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="mood">Mood</label>
+                        <select id="mood" class="form-select" name="mood">
+                            <option value="">Any mood</option>
+                            <option value="positive" {% if qp.get('mood')=='positive' %}selected{% endif %}>Positive</option>
+                            <option value="neutral" {% if qp.get('mood')=='neutral' %}selected{% endif %}>Neutral</option>
+                            <option value="negative" {% if qp.get('mood')=='negative' %}selected{% endif %}>Negative</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4 d-flex gap-2">
+                        <button class="btn btn-primary" type="submit">Search</button>
+                        <button class="btn btn-outline-secondary" type="button" data-bs-toggle="collapse"
+                                data-bs-target="#moreFilters" aria-expanded="{{ 'true' if has_more_filters else 'false' }}"
+                                aria-controls="moreFilters">
+                            <i class="fa-solid fa-sliders"></i> More Filters
+                        </button>
+                        <button class="btn btn-outline-danger" type="button" id="resetButton">Clear</button>
+                    </div>
+                </div>
+
+                <!-- Tags and date range - collapsed unless one is already active -->
+                <div class="collapse{{ ' show' if has_more_filters else '' }} mt-3" id="moreFilters">
+                    <div class="row g-2">
+                        <div class="col-md-5">
+                            <label>Tags</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="tag-input"
+                                       list="tags-datalist"
+                                       placeholder="Type or pick a tag...">
+                                <datalist id="tags-datalist"></datalist>
+                                <button type="button" class="btn btn-secondary" id="add-tag-btn">Add</button>
+                            </div>
+                            <div id="selected-tags" class="mt-2 d-flex flex-wrap"></div>
+                            <div id="tag-hidden-inputs"></div>
+                        </div>
+                        <div class="col-md-3">
+                            <label for="start_date">From Date</label>
+                            <input id="start_date" class="form-control" type="date" name="start_date"
+                                value="{{ qp.get('start_date', '') }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label for="end_date">To Date</label>
+                            <input id="end_date" class="form-control" type="date" name="end_date"
+                                value="{{ qp.get('end_date', '') }}">
+                        </div>
+                    </div>
+                </div>
+            </form>
+            <!-- End Search Form -->
+
+            <!-- Active filter summary - always reflects the last search actually run -->
+            <div id="active-filters-bar" class="mt-3 d-none">
+                <small class="text-muted me-2">Filtering by:</small>
+                <span id="active-filters-chips"></span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    var initialTags = {{ qp.getlist('tags') | tojson }};
+
+    // Populate datalist with user's existing tags
+    fetch('/notes/tags')
+        .then(function (r) { return r.json(); })
+        .then(function (tags) {
+            var dl = document.getElementById('tags-datalist');
+            tags.forEach(function (tag) {
+                var opt = document.createElement('option');
+                opt.value = tag;
+                dl.appendChild(opt);
+            });
+        })
+        .catch(function () {});
+
+    var selectedTags = new Set(initialTags);
+
+    function addTag(tag) {
+        tag = (tag || '').trim().toLowerCase();
+        if (tag && !selectedTags.has(tag)) {
+            selectedTags.add(tag);
+            renderTags();
+        }
+    }
+
+    function removeTag(tag) {
+        selectedTags.delete(tag);
+        renderTags();
+    }
+
+    function renderTags() {
+        var badges = document.getElementById('selected-tags');
+        var inputs = document.getElementById('tag-hidden-inputs');
+        badges.innerHTML = '';
+        inputs.innerHTML = '';
+        selectedTags.forEach(function (tag) {
+            var badge = document.createElement('span');
+            badge.className = 'badge bg-info d-inline-flex align-items-center me-1 mb-1';
+            var text = document.createTextNode(tag);
+            var x = document.createElement('button');
+            x.type = 'button';
+            x.className = 'btn-close btn-close-white btn-sm ms-2';
+            x.style.fontSize = '0.55em';
+            x.setAttribute('aria-label', 'Remove tag ' + tag);
+            x.addEventListener('click', function () { removeTag(tag); });
+            badge.appendChild(text);
+            badge.appendChild(x);
+            badges.appendChild(badge);
+
+            var hidden = document.createElement('input');
+            hidden.type = 'hidden';
+            hidden.name = 'tags';
+            hidden.value = tag;
+            inputs.appendChild(hidden);
+        });
+    }
+    renderTags();
+
+    document.getElementById('add-tag-btn').addEventListener('click', function () {
+        var input = document.getElementById('tag-input');
+        addTag(input.value);
+        input.value = '';
+    });
+
+    document.getElementById('tag-input').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            addTag(this.value);
+            this.value = '';
+        }
+    });
+
+    // Selecting a value straight from the datalist adds it immediately,
+    // without needing a separate click on "Add".
+    document.getElementById('tag-input').addEventListener('change', function () {
+        addTag(this.value);
+        this.value = '';
+    });
+
+    document.getElementById('resetButton').addEventListener('click', function () {
+        // Fields can be pre-filled from the URL (for shareable filtered
+        // links), so native form.reset() would restore those values instead
+        // of clearing them - blank every field explicitly instead.
+        document.getElementById('search_term').value = '';
+        document.getElementById('mood').value = '';
+        document.getElementById('start_date').value = '';
+        document.getElementById('end_date').value = '';
+        selectedTags.clear();
+        renderTags();
+        document.getElementById('notes-search-form').requestSubmit();
+    });
+
+    // Active-filters chip bar: rebuilt after every search actually runs (initial
+    // load included), from the same fields that were just submitted - so it can
+    // never drift out of sync with what's really being filtered on.
+    function moodLabel(value) {
+        return { positive: 'Positive', neutral: 'Neutral', negative: 'Negative' }[value] || value;
+    }
+
+    function makeChip(label, onRemove) {
+        var chip = document.createElement('span');
+        chip.className = 'badge bg-secondary d-inline-flex align-items-center me-1 mb-1';
+        chip.appendChild(document.createTextNode(label));
+        var x = document.createElement('button');
+        x.type = 'button';
+        x.className = 'btn-close btn-close-white btn-sm ms-2';
+        x.style.fontSize = '0.55em';
+        x.setAttribute('aria-label', 'Remove filter: ' + label);
+        x.addEventListener('click', onRemove);
+        chip.appendChild(x);
+        return chip;
+    }
+
+    function refreshActiveFilters() {
+        var bar = document.getElementById('active-filters-bar');
+        var container = document.getElementById('active-filters-chips');
+        container.innerHTML = '';
+
+        var searchTerm = document.getElementById('search_term').value;
+        var mood = document.getElementById('mood').value;
+        var startDate = document.getElementById('start_date').value;
+        var endDate = document.getElementById('end_date').value;
+
+        var any = false;
+
+        if (searchTerm) {
+            any = true;
+            container.appendChild(makeChip('Text: "' + searchTerm + '"', function () {
+                document.getElementById('search_term').value = '';
+                document.getElementById('notes-search-form').requestSubmit();
+            }));
+        }
+        if (mood) {
+            any = true;
+            container.appendChild(makeChip('Mood: ' + moodLabel(mood), function () {
+                document.getElementById('mood').value = '';
+                document.getElementById('notes-search-form').requestSubmit();
+            }));
+        }
+        if (startDate || endDate) {
+            any = true;
+            var label = 'Date: ' + (startDate || '…') + ' → ' + (endDate || '…');
+            container.appendChild(makeChip(label, function () {
+                document.getElementById('start_date').value = '';
+                document.getElementById('end_date').value = '';
+                document.getElementById('notes-search-form').requestSubmit();
+            }));
+        }
+        selectedTags.forEach(function (tag) {
+            any = true;
+            container.appendChild(makeChip('Tag: ' + tag, function () {
+                removeTag(tag);
+                document.getElementById('notes-search-form').requestSubmit();
+            }));
+        });
+
+        bar.classList.toggle('d-none', !any);
+    }
+
+    document.body.addEventListener('htmx:afterSwap', function (evt) {
+        if (evt.detail.target && evt.detail.target.id === 'notes-data') {
+            refreshActiveFilters();
+        }
+    });
+})();
+</script>
