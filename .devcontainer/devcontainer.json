@@ -16,7 +16,7 @@
 		5432,
 		32080
 	],
-	"postCreateCommand": "pip3 install --upgrade pip setuptools wheel && pip3 install -r requirements/dev.txt && sudo chmod 666 /var/run/docker.sock",
+	"postCreateCommand": "pip3 install --upgrade pip setuptools wheel && pip3 install -r requirements/dev.txt && sudo chmod 666 /var/run/docker.sock && alembic upgrade head",
 	// "postStartCommand": "",
 	"customizations": {
 		"vscode": {
@@ -29,6 +29,7 @@
 			},
 			"extensions": [
 				"Anthropic.claude-code",
+				"peakchen90.open-html-in-browser",
 				"streetsidesoftware.code-spell-checker",
 				"GitHub.copilot",
 				"GitHub.copilot-chat",

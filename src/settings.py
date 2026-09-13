@@ -85,6 +85,19 @@ class Settings(BaseSettings):
     def dev_fake_login_allowed(self) -> bool:
         return self.dev_fake_login_enabled and self.is_dev_environment
 
+    @property
+    def is_postgres(self) -> bool:
+        """True when db_driver resolves to a Postgres connection string.
+
+        Single source of truth for the Postgres-vs-SQLite branching that
+        db_tables.py (NoteMetrics/NoteMetricsScalars schema split),
+        resources.py (startup_event()'s create_tables()/migration-check
+        gating), and notes_metrics.py (materialized-view refresh) all need
+        to agree on identically - previously each re-derived
+        `db_driver.startswith("postgres")` independently.
+        """
+        return self.db_driver.startswith("postgres")
+
     # logging settings
     logging_directory: str = "log"
     log_name: str = "log.log"

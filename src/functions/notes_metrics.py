@@ -6,6 +6,7 @@ Author:
     MIT Licensed
 """
 
+import asyncio
 import datetime
 import json
 import statistics
@@ -14,10 +15,19 @@ from collections import Counter, defaultdict, deque
 from typing import Any
 
 from loguru import logger
-from sqlalchemy import Select, insert, update
+from sqlalchemy import Select, insert, text, update
 
-from ..db_tables import NoteMetrics, Notes
-from ..functions.db_guards import safe_list as _safe_list, safe_record as _safe_record
+from ..db_tables import (
+    NOTE_METRICS_SCALAR_FIELDS,
+    NoteMetrics,
+    NoteMetricsScalars,
+    Notes,
+)
+from ..functions.db_guards import (
+    is_db_error as _is_db_error,
+    safe_list as _safe_list,
+    safe_record as _safe_record,
+)
 from ..resources import db_ops
 from ..settings import settings
 
@@ -402,6 +412,12 @@ def _compute_metrics_bundle(notes: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+# Maps a NOTE_METRICS_SCALAR_FIELDS name to its key in _compute_metrics_bundle()'s
+# return dict, for the one field whose name differs between the two
+# (character_count here vs. char_count there); every other field name matches.
+_BUNDLE_KEY_BY_FIELD = {"character_count": "char_count"}
+
+
 async def update_notes_metrics(user_id: str):
     logger.debug("background task for metrics")
     started_at = datetime.datetime.now(datetime.timezone.utc)
@@ -418,38 +434,63 @@ async def update_notes_metrics(user_id: str):
     notes = [_metrics_note_from_model(note) for note in notes]
     bundle = _compute_metrics_bundle(notes=notes)
 
+    is_postgres = settings.is_postgres
+    # On Postgres, the scalar fields below live in the note_metrics_scalars
+    # materialized view (derived straight from `notes`, refreshed below) -
+    # not in this table. On SQLite they stay ordinary stored columns.
+    # Field names are sourced from NOTE_METRICS_SCALAR_FIELDS (db_tables.py)
+    # rather than repeated here, so this dict, the zero-value fallback in
+    # get_or_refresh() below, and the column definitions it mirrors can't
+    # silently drift apart; `_BUNDLE_KEY_BY_FIELD` covers the one field
+    # whose name differs in `bundle` itself (character_count/char_count).
+    scalar_values = (
+        {}
+        if is_postgres
+        else {
+            field: bundle[_BUNDLE_KEY_BY_FIELD.get(field, field)]
+            for field in NOTE_METRICS_SCALAR_FIELDS
+        }
+    )
+
     if metric_data is None:
-        result = await db_ops.execute_one(
-            insert(NoteMetrics).values(
-                pkid=str(uuid.uuid4()),
-                word_count=bundle["word_count"],
-                note_count=bundle["note_count"],
-                character_count=bundle["char_count"],
-                mood_metric=bundle["mood_metric"],
-                total_unique_tag_count=bundle["total_unique_tag_count"],
-                metrics=bundle["metrics"],
-                ai_fix_count=bundle["ai_fix_count"],
-                user_id=user_id,
-            )
+        write_query = insert(NoteMetrics).values(
+            pkid=str(uuid.uuid4()),
+            metrics=bundle["metrics"],
+            user_id=user_id,
+            **scalar_values,
         )
     else:
-        note_metrics = {
-            "word_count": bundle["word_count"],
-            "note_count": bundle["note_count"],
-            "character_count": bundle["char_count"],
-            "mood_metric": bundle["mood_metric"],
-            "total_unique_tag_count": bundle["total_unique_tag_count"],
-            "metrics": bundle["metrics"],
-            "user_id": user_id,
-            "ai_fix_count": bundle["ai_fix_count"],
-        }
-
-        # Update the database
-        result = await db_ops.execute_one(
+        write_query = (
             update(NoteMetrics)
             .where(NoteMetrics.pkid == metric_data.pkid)
-            .values(**note_metrics)
+            .values(metrics=bundle["metrics"], user_id=user_id, **scalar_values)
         )
+
+    if is_postgres:
+        # Materialized views don't auto-update - this is the only place
+        # note_metrics_scalars' data ever changes. Plain (non-CONCURRENT)
+        # refresh: simpler than CONCURRENTLY (which needs its own unique-
+        # index maintenance ceremony - the unique index created alongside
+        # the view keeps that upgrade path open), and cheap at current
+        # scale. Takes an ACCESS EXCLUSIVE lock on the view for its
+        # duration, briefly blocking concurrent reads of it - acceptable
+        # for a single-user app; revisit if that ever changes. Run
+        # concurrently with the NoteMetrics write below - the view is
+        # derived straight from `notes`, not from the NoteMetrics row, so
+        # the two have no data dependency on each other and don't need to
+        # be serialized into two round trips.
+        result, refresh_result = await asyncio.gather(
+            db_ops.execute_one(write_query),
+            db_ops.execute_one(text("REFRESH MATERIALIZED VIEW note_metrics_scalars")),
+        )
+        if _is_db_error(refresh_result):
+            logger.error(
+                "Failed to refresh note_metrics_scalars for user {}: {}",
+                user_id,
+                refresh_result,
+            )
+    else:
+        result = await db_ops.execute_one(write_query)
 
     logger.debug(result)
     elapsed_ms = int(
@@ -459,20 +500,80 @@ async def update_notes_metrics(user_id: str):
     logger.info("Note metrics updated for user {} in {}ms", user_id, elapsed_ms)
 
 
-async def get_or_refresh(user_id: str):
+def _merge_scalar_metrics(result: dict, scalars: dict | None) -> dict:
     """
-    Fetch the user's NoteMetrics row, computing it for the first time (via
-    update_notes_metrics()) if it doesn't exist yet.
+    Merges NoteMetricsScalars' scalar fields into `result` in place (or the
+    zero-value fallback shape when `scalars` is None - a user with zero
+    notes never appears in the view's GROUP BY output, the same shape
+    _compute_metrics_bundle() would produce for an empty note list).
+
+    Pulled out of get_or_refresh() as a plain-dict function so this merge -
+    the exact place a field-name mismatch between NOTE_METRICS_SCALAR_FIELDS
+    and the view would surface - can be unit-tested without a live
+    Postgres-backed NoteMetricsScalars query (that class is only defined at
+    all when settings.is_postgres was true at db_tables.py import time,
+    which pytest's memory-driver test suite never is).
+    """
+    result.update(
+        scalars
+        if scalars is not None
+        else {
+            field: {} if field == "mood_metric" else 0
+            for field in NOTE_METRICS_SCALAR_FIELDS
+        }
+    )
+    return result
+
+
+async def get_or_refresh(user_id: str) -> dict | None:
+    """
+    Fetch the user's note metrics, computing them for the first time (via
+    update_notes_metrics()) if they don't exist yet.
+
+    On Postgres, the plain scalar aggregates (word_count, note_count, etc.)
+    live in the note_metrics_scalars materialized view rather than on
+    NoteMetrics itself (see db_tables.py) - this merges both sources so
+    callers see the same flat shape regardless of dialect.
 
     Returns:
-        The NoteMetrics ORM object, or None if it still couldn't be loaded
-        after attempting to compute it (e.g. a DB error on the insert).
+        A dict of the combined fields, or None if metrics still couldn't be
+        loaded after attempting to compute them (e.g. a DB error on insert).
     """
     query = Select(NoteMetrics).where(NoteMetrics.user_id == user_id)
-    note_metrics = _safe_record(await db_ops.read_one_record(query=query))
+
+    async def _fetch():
+        # On Postgres, these are two independent per-user reads (one row,
+        # one materialized-view row) with no data dependency on each other -
+        # fire them concurrently rather than paying two serial round trips
+        # on every dashboard/metrics-counts load.
+        if settings.is_postgres:
+            scalars_query = Select(NoteMetricsScalars).where(
+                NoteMetricsScalars.user_id == user_id
+            )
+            note_metrics_raw, scalars_raw = await asyncio.gather(
+                db_ops.read_one_record(query=query),
+                db_ops.read_one_record(query=scalars_query),
+            )
+            return _safe_record(note_metrics_raw), _safe_record(scalars_raw)
+        return _safe_record(await db_ops.read_one_record(query=query)), None
+
+    note_metrics, scalars = await _fetch()
 
     if note_metrics is None:
         await update_notes_metrics(user_id=user_id)
-        note_metrics = _safe_record(await db_ops.read_one_record(query=query))
+        # Re-fetch both: the row created above and, on Postgres, the view
+        # data that update_notes_metrics() just refreshed - the `scalars`
+        # from the fetch above (taken before that row existed) is stale.
+        note_metrics, scalars = await _fetch()
 
-    return note_metrics
+    if note_metrics is None:
+        return None
+
+    result = note_metrics.to_dict()
+
+    if settings.is_postgres:
+        _merge_scalar_metrics(
+            result, scalars.to_dict() if scalars is not None else None
+        )
+
+    return result

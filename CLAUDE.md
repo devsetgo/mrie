@@ -24,8 +24,19 @@ make cleanup          # autoflake + ruff + isort, in that order
 make ruff             # ruff check --fix on src/ and tests/
 make black            # black on src/ and tests/
 make cache            # clean __pycache__ / .pytest_cache
+make alembic-migrate  # alembic upgrade head (Postgres only, see Data layer below)
+make alembic-rev      # alembic revision --autogenerate, prompts for a name
+make alembic-downgrade  # alembic downgrade -1
 make help             # list all targets with descriptions
 ```
+
+Local dev defaults to `DB_DRIVER=postgres` against the devcontainer's
+`postgresdb` service (`.devcontainer/docker-compose.yml`), matching
+production; the devcontainer's `postCreateCommand` runs
+`alembic upgrade head` against it automatically on container creation. Set
+`DB_DRIVER=memory` in `.env` instead for a quick, disposable in-memory
+SQLite DB (this is what the automated test suite always uses, regardless
+of `.env` — see `tests/conftest.py`).
 
 Run a single test directly (skips pre-commit and coverage/badge generation):
 
@@ -33,10 +44,11 @@ Run a single test directly (skips pre-commit and coverage/badge generation):
 PYTHONPATH=. pytest tests/test_main.py::test_read_root -v
 ```
 
-`make help` shows every active target; several targets (alembic, docker,
-flake8, pyright, granian) are commented out in the `makefile` with a
-reason each — they're not wired up (packages not installed / no
-migrations exist yet), not accidentally broken.
+`make help` shows every active target; several targets (docker, flake8,
+pyright, granian) are commented out in the `makefile` with a reason each —
+they're not wired up (packages not installed), not accidentally broken.
+Alembic's targets (`alembic-migrate`/`alembic-rev`/`alembic-downgrade`,
+above) are wired up and live, unlike these.
 
 ## Architecture
 
@@ -134,12 +146,27 @@ agnostic to how the session was populated.
   (`src/functions/encrypt.py`, key derived from `PHRASE`/`SALT`).
 - `src/db_init.py` builds the async engine from `settings.db_driver`
   (`DatabaseDriverEnum` in `src/settings.py`: `postgres` / `sqlite` /
-  `memory`, the last being in-memory sqlite used for all local dev).
-  `src/resources.py::startup_event()` calls `create_tables()`
-  unconditionally on boot (idempotent — only creates missing tables; no
-  Alembic migrations exist, so it can't alter existing ones) and seeds
-  demo data via `functions/demo_data.py` whenever the driver isn't
-  postgres and `users` is empty.
+  `memory`). Schema for Postgres (dev + prod) is managed by Alembic (see
+  `alembic/`) — `alembic upgrade head`, run out-of-band (devcontainer
+  `postCreateCommand`, CI, `make alembic-migrate`, or a deploy step),
+  never on app boot. SQLite (`memory`, and the file-based driver
+  `make run-dev-workers` uses) still gets its schema from
+  `src/resources.py::startup_event()` calling `create_tables()` on boot
+  instead (idempotent — only creates missing tables) — `dsg_lib`'s
+  per-dialect `server_default` expressions mean a frozen Postgres
+  migration can't run against SQLite. `startup_event()` also seeds demo
+  data via `functions/demo_data.py` whenever the driver isn't postgres and
+  `users` is empty.
+- `NoteMetrics`'s plain scalar aggregates (`word_count`, `character_count`,
+  `note_count`, `ai_fix_count`, `total_unique_tag_count`, `mood_metric`)
+  live in a `note_metrics_scalars` Postgres materialized view instead of
+  as columns on `NoteMetrics` itself — computed directly from `notes` and
+  refreshed by `src/functions/notes_metrics.py::update_notes_metrics()`.
+  On SQLite (no materialized views) they stay ordinary stored columns.
+  The `metrics` JSON blob (rolling averages, streaks, mood-weighted means,
+  tag trends) stays a stored, Python-computed column on every dialect —
+  that logic isn't expressible as a SQL view. See `PROJECT_STATUS.md`'s
+  Database section for the full rationale.
 - All queries go through `db_ops` (`devsetgo-lib`'s `DatabaseOperations`,
   instantiated once in `src/resources.py`). **Gotcha**:
   `db_ops.count_query(query)` wraps whatever `Select` you pass it in its

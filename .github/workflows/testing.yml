@@ -32,6 +32,25 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    services:
+      # Not used by the pytest run itself (that stays on DB_DRIVER: memory,
+      # below) - this backs the "Apply Alembic migrations" step only, so CI
+      # actually exercises the Postgres-only migrations (e.g. the
+      # NoteMetrics materialized view) at least once, closing the gap where
+      # CI never touched Postgres at all even though production runs it.
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
       # Same in-memory-DB/dev-login test posture conftest.py forces locally -
       # set explicitly here too since that's belt-and-suspenders, not a
@@ -70,6 +89,11 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements/dev.txt
+
+      - name: Apply Alembic migrations against CI Postgres
+        run: alembic upgrade head
+        env:
+          DB_DRIVER: postgres
 
       - name: Test with pytest
         run: PYTHONPATH=. pytest

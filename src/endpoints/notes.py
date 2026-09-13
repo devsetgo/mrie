@@ -165,7 +165,6 @@ async def read_notes(
     metrics = None
 
     if note_metrics is not None:
-        note_metrics = note_metrics.to_dict()
         metrics = note_metrics["metrics"]
 
         # Get the current time in UTC - naive, to match the naive datetimes
@@ -224,7 +223,6 @@ async def get_note_counts(
             context={"note_metrics": {}},
         )
 
-    note_metrics = note_metrics.to_dict()
     for field in ["pkid", "date_created", "date_updated", "user_id"]:
         note_metrics.pop(field, None)
 
