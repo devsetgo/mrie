@@ -2,7 +2,7 @@
 SHELL := /bin/bash
 # Variables
 application_name = mikeryanie
-__version__ = 2024-11-17-001
+__version__ = 2026.09.13-001
 
 PYTHON = python3
 PIP = $(PYTHON) -m pip
