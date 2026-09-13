@@ -38,6 +38,7 @@ client = (
 )
 
 temperature = 0.2
+DEFAULT_YOUTUBE_TITLE = "YouTube Video"
 
 
 def is_youtube_url(url: str) -> bool:
@@ -108,7 +109,7 @@ async def get_youtube_metadata(video_id: str) -> Dict[str, str]:
                     f"Failed to get YouTube metadata for video {video_id}: {response.status_code}"
                 )
                 return {
-                    "title": "YouTube Video",
+                    "title": DEFAULT_YOUTUBE_TITLE,
                     "description": "YouTube video content",
                     "author_name": "",
                     "thumbnail_url": "",
@@ -117,7 +118,7 @@ async def get_youtube_metadata(video_id: str) -> Dict[str, str]:
     except Exception as e:
         logger.error(f"Error getting YouTube metadata for video {video_id}: {e}")
         return {
-            "title": "YouTube Video",
+            "title": DEFAULT_YOUTUBE_TITLE,
             "description": "YouTube video content",
             "author_name": "",
             "thumbnail_url": "",
@@ -216,16 +217,21 @@ async def get_youtube_title(url: str) -> str:
     video_id = extract_youtube_video_id(url)
     if not video_id:
         logger.error(f"Could not extract video ID from URL: {url}")
-        return "YouTube Video"
+        return DEFAULT_YOUTUBE_TITLE
 
     metadata = await get_youtube_metadata(video_id)
 
     # Clean up the title - remove common YouTube suffixes and prefixes
     title = metadata["title"]
     if title:
-        # Remove common patterns like " - YouTube", " | YouTube", etc.
-        title = re.sub(r"\s*[-|]\s*YouTube\s*$", "", title, flags=re.IGNORECASE)
+        # Remove common patterns like " - YouTube", " | YouTube", etc. Anchors
+        # a single trailing \s* to "youtube$" rather than sandwiching it
+        # between two \s* groups (flagged by static analysis for super-linear
+        # backtracking risk) - the separator itself is then stripped with
+        # plain str methods instead of a second regex quantifier.
+        title = re.sub(r"(?i)youtube\s*$", "", title.rstrip())
+        title = title.rstrip().rstrip("-|").rstrip()
         title = strip_quotation_marks(title)
         return title[:100]  # Limit length
 
-    return "YouTube Video"
+    return DEFAULT_YOUTUBE_TITLE

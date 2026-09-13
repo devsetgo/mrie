@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """ """
 
+import time
+
+import anyio
 import httpx
 from loguru import logger
 from sqlalchemy import Select, update
@@ -71,24 +74,14 @@ async def save_preview_image(pkid: str, image: bytes):
         logger.error(error)
 
 
-async def capture_full_page_screenshot(url: str, pkid: str) -> bytes:
+def _capture_full_page_screenshot_sync(url: str) -> bytes:
     """
-    Captures a full-page screenshot of the given URL and returns the image data as bytes.
-    For YouTube URLs, captures the video page with special handling.
-
-    Args:
-        url (str): The URL of the webpage to capture.
-        pkid (str): The primary key ID for the weblink.
-
-    Returns:
-        bytes: The image data of the screenshot.
+    Synchronous Selenium body of capture_full_page_screenshot(). Runs in a
+    worker thread (see below) - driver.get()/find_element()/time.sleep() are
+    all blocking calls that would otherwise stall the event loop for the
+    duration of the page load.
     """
     from .youtube_helper import is_youtube_url
-
-    if webdriver is None:
-        raise RuntimeError(
-            "selenium/webdriver-manager not installed - screenshot capture disabled"
-        )
 
     # Set up Chrome options
     chrome_options = Options()
@@ -127,8 +120,6 @@ async def capture_full_page_screenshot(url: str, pkid: str) -> bytes:
 
         # For YouTube, wait a bit longer and handle cookie acceptance
         if is_youtube_url(url):
-            import time
-
             time.sleep(3)  # Wait for page to load
 
             # Try to accept cookies if the banner appears
@@ -151,10 +142,32 @@ async def capture_full_page_screenshot(url: str, pkid: str) -> bytes:
         driver.set_window_size(1920, total_height)
 
         # Capture the screenshot
-        screenshot_as_bytes = driver.get_screenshot_as_png()
-        await save_preview_image(pkid=pkid, image=screenshot_as_bytes)
+        return driver.get_screenshot_as_png()
     finally:
         driver.quit()
+
+
+async def capture_full_page_screenshot(url: str, pkid: str) -> bytes:
+    """
+    Captures a full-page screenshot of the given URL and returns the image data as bytes.
+    For YouTube URLs, captures the video page with special handling.
+
+    Args:
+        url (str): The URL of the webpage to capture.
+        pkid (str): The primary key ID for the weblink.
+
+    Returns:
+        bytes: The image data of the screenshot.
+    """
+    if webdriver is None:
+        raise RuntimeError(
+            "selenium/webdriver-manager not installed - screenshot capture disabled"
+        )
+
+    screenshot_as_bytes = await anyio.to_thread.run_sync(
+        _capture_full_page_screenshot_sync, url
+    )
+    await save_preview_image(pkid=pkid, image=screenshot_as_bytes)
 
 
 async def get_weblink_metrics():
@@ -180,9 +193,7 @@ async def get_weblink_metrics():
     return response
 
 
-async def update_weblinks_ai(list_of_ids: list):
-    # for pkid in tqdm(list_of_ids):
-    #     print(pkid)
+def update_weblinks_ai(list_of_ids: list):
     tasks = [
         update_weblinks(pkid=pkid)
         for pkid in tqdm(list_of_ids, ascii=False, leave=True, desc="Sending Weblinks")

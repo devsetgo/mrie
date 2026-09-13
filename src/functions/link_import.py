@@ -19,12 +19,6 @@ from ..functions._optional_deps import tqdm
 from ..functions.db_guards import safe_record as _safe_record
 from ..resources import db_ops
 
-# class WebLink(BaseModel):
-#     user_id: str
-#     url: str
-#     category: str
-#     ai_fixe: bool = True
-
 
 async def read_weblinks_from_file(csv_content: str, user_identifier: str):
     """
@@ -34,11 +28,7 @@ async def read_weblinks_from_file(csv_content: str, user_identifier: str):
     data = list(csv_reader)
 
     link_pkids: list = []
-    count = 0
     for i in data:
-        count += 1
-        # if count > 10:
-        #     break
         public = True if i["public"] == "True" else False
         title = await ai.get_html_title(i["url"])
         if title == "Not Found":
@@ -111,7 +101,6 @@ async def ai_process_pkids(pkids: list):
     return {"status": "success"}
 
 
-# link_preview.capture_full_page_screenshot, url=url, pkid=data.pkid
 async def loop_pkids_for_images(pkids: list):
     """
     Loop through the pkids and capture the full page screenshot

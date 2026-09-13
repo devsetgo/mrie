@@ -13,11 +13,13 @@ from loguru import logger
 
 from .settings import settings
 
+SQLITE_AIOSQLITE_DRIVER = "sqlite+aiosqlite"
+
 if str(settings.db_driver.value).startswith(
     "sqlite+aiosqlite:///:memory:?cache=shared"
 ):  # no pragma: no cover
     db_uri: str = settings.db_driver.value
-elif settings.db_driver.value == "sqlite+aiosqlite":  # no pragma: no cover
+elif settings.db_driver.value == SQLITE_AIOSQLITE_DRIVER:  # no pragma: no cover
     db_name = settings.db_name.get_secret_value()
     if "." not in db_name:  # no pragma: no cover
         db_name = f"{db_name}.db"
@@ -36,12 +38,12 @@ logger.debug(f"{db_uri}")
 
 # Mapping of configuration options to database drivers that support them
 option_support = {
-    "echo": ["sqlite+aiosqlite", "postgresql", "mysql", "oracle", "mssql"],
-    "future": ["sqlite+aiosqlite", "postgresql", "mysql", "oracle", "mssql"],
+    "echo": [SQLITE_AIOSQLITE_DRIVER, "postgresql", "mysql", "oracle", "mssql"],
+    "future": [SQLITE_AIOSQLITE_DRIVER, "postgresql", "mysql", "oracle", "mssql"],
     "pool_pre_ping": ["postgresql", "mysql", "oracle", "mssql"],
     "pool_size": ["postgresql", "mysql", "oracle", "mssql"],
     "max_overflow": ["postgresql", "mysql", "oracle", "mssql"],
-    "pool_recycle": ["sqlite+aiosqlite", "postgresql", "mysql", "oracle", "mssql"],
+    "pool_recycle": [SQLITE_AIOSQLITE_DRIVER, "postgresql", "mysql", "oracle", "mssql"],
     "pool_timeout": ["postgresql", "mysql", "oracle", "mssql"],
 }
 

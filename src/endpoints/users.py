@@ -31,7 +31,7 @@ Author:
 
 import secrets
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import webauthn
 from fastapi import APIRouter, HTTPException, Request, status
@@ -130,7 +130,13 @@ async def login_page(request: Request):
     )
 
 
-@router.get("/dev-login")
+@router.get(
+    "/dev-login",
+    responses={
+        404: {"description": "Dev fake login is not allowed in this environment"},
+        500: {"description": "Failed to provision the admin user"},
+    },
+)
 async def dev_login(request: Request):
     """
     Dev-only login bypass - skips the WebAuthn ceremony entirely. Exists so a
@@ -175,7 +181,13 @@ async def login_options(request: Request):
     )
 
 
-@router.post("/login/verify")
+@router.post(
+    "/login/verify",
+    responses={
+        400: {"description": "No pending challenge, or a malformed passkey response"},
+        401: {"description": "Unknown, unverified, or non-admin passkey"},
+    },
+)
 async def login_verify(request: Request):
     challenge_b64 = request.session.pop(CHALLENGE_SESSION_KEY, None)
     if challenge_b64 is None:
@@ -226,13 +238,14 @@ async def login_verify(request: Request):
         update(WebAuthnCredentials)
         .where(WebAuthnCredentials.pkid == stored_cred.pkid)
         .values(
-            sign_count=verification.new_sign_count, date_last_used=datetime.utcnow()
+            sign_count=verification.new_sign_count,
+            date_last_used=datetime.now(timezone.utc).replace(tzinfo=None),
         )
     )
     await db_ops.execute_one(
         update(Users)
         .where(Users.pkid == user.pkid)
-        .values(date_last_login=datetime.utcnow())
+        .values(date_last_login=datetime.now(timezone.utc).replace(tzinfo=None))
     )
 
     request.session["user_identifier"] = user.pkid
@@ -258,7 +271,13 @@ async def register_page(request: Request):
     )
 
 
-@router.get("/register/options")
+@router.get(
+    "/register/options",
+    responses={
+        403: {"description": "Registration is closed"},
+        500: {"description": "Failed to provision the admin user"},
+    },
+)
 async def register_options(request: Request):
     if not await registration_authorized(request):
         raise HTTPException(status_code=403, detail="Registration is closed")
@@ -295,7 +314,14 @@ async def register_options(request: Request):
     )
 
 
-@router.post("/register/verify")
+@router.post(
+    "/register/verify",
+    responses={
+        400: {"description": "No pending challenge, malformed, or failed registration"},
+        403: {"description": "Registration is closed"},
+        500: {"description": "Failed to provision the admin user or store the passkey"},
+    },
+)
 async def register_verify(request: Request):
     if not await registration_authorized(request):
         raise HTTPException(status_code=403, detail="Registration is closed")

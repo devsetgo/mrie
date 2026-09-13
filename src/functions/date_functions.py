@@ -3,7 +3,7 @@
 date_functions.py
 
 This module provides a function for converting a datetime object or string to a specified timezone.
-It uses the pytz library to handle timezone conversions and the loguru library for logging.
+It uses the standard library's zoneinfo module to handle timezone conversions and the loguru library for logging.
 
 Functions:
     timezone_update(user_timezone: str, date_time, friendly_string=False): Convert a datetime object or string to a specified timezone and optionally return it as a formatted string.
@@ -14,14 +14,14 @@ Author:
 """
 
 from datetime import datetime
+from zoneinfo import ZoneInfo, available_timezones
 
-import pytz
 from loguru import logger
 
-TIMEZONES = pytz.all_timezones
+TIMEZONES = sorted(available_timezones())
 
 
-async def timezone_update(
+def timezone_update(
     user_timezone: str,
     date_time: datetime,
     friendly_string: bool = False,
@@ -53,7 +53,7 @@ async def timezone_update(
 
     # Try to convert UTC date_time to user's timezone
     try:
-        user_tz = pytz.timezone(user_timezone)
+        user_tz = ZoneInfo(user_timezone)
         date_time = date_time.astimezone(user_tz)
     except Exception as e:
         # Log any errors that occur when updating the timezone
@@ -72,14 +72,14 @@ async def timezone_update(
     return date_time
 
 
-async def update_timezone_for_dates(data: list, user_timezone: str):
+def update_timezone_for_dates(data: list, user_timezone: str):
     for d in data:
-        d["date_created"] = await timezone_update(
+        d["date_created"] = timezone_update(
             user_timezone=user_timezone,
             date_time=d["date_created"],
             asia_format=True,
         )
-        d["date_updated"] = await timezone_update(
+        d["date_updated"] = timezone_update(
             user_timezone=user_timezone,
             date_time=d["date_updated"],
             asia_format=True,

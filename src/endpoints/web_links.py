@@ -60,6 +60,10 @@ from ..resources import db_ops, templates
 
 router = APIRouter()
 
+ERROR_404_URL = "/error/404"
+ERROR_418_URL = "/error/418"
+DEFAULT_TIMEZONE = "America/New_York"
+
 
 # api endpoints
 # /list with filters (by tag, by date range, by category)
@@ -70,10 +74,6 @@ async def list_of_web_links(
     limit: int = Query(100, description="Limit for pagination"),
     # user_info: dict = Depends(check_login),
 ):
-    user_timezone = request.session.get("timezone", None)
-    if user_timezone is None:
-        user_timezone = "America/New_York"
-
     weblinks_metrics = await link_preview.get_weblink_metrics()
     context = {"page": "weblinks", "weblinks_metrics": weblinks_metrics}
     return templates.TemplateResponse(
@@ -99,16 +99,11 @@ async def bulk_weblink(
     user_info: dict = Depends(check_login),
 ):
     user_identifier = user_info["user_identifier"]
-    # user_identifier =  request.session.get("user_identifier")
-    user_info["timezone"]
 
     # read the file content
     file_content = await csv_file.read()
     file_content = file_content.decode("utf-8")
 
-    # await link_import.read_weblinks_from_file(
-    #     csv_content=file_content, user_identifier=user_identifier
-    # )
     # Add the task to background tasks
     background_tasks.add_task(
         link_import.read_weblinks_from_file,
@@ -155,7 +150,7 @@ async def read_weblinks_pagination(
 
     user_timezone = request.session.get("timezone", None)
     if user_timezone is None:
-        user_timezone = "America/New_York"
+        user_timezone = DEFAULT_TIMEZONE
 
     logger.info(
         f"Searching for term: {search_term}, start_date: {start_date}, end_date: {end_date}"
@@ -189,12 +184,12 @@ async def read_weblinks_pagination(
         weblinks = [link.to_dict() for link in weblinks]
     # offset date_created and date_updated to user's timezone
     for link in weblinks:
-        link["date_created"] = await date_functions.timezone_update(
+        link["date_created"] = date_functions.timezone_update(
             user_timezone=user_timezone,
             date_time=link["date_created"],
             friendly_string=True,
         )
-        link["date_updated"] = await date_functions.timezone_update(
+        link["date_updated"] = date_functions.timezone_update(
             user_timezone=user_timezone,
             date_time=link["date_updated"],
             friendly_string=True,
@@ -289,7 +284,7 @@ async def create_link(
     )
     if is_db_error(result):
         logger.error(f"Error creating link: {result}")
-        return RedirectResponse(url="/error/418", status_code=302)
+        return RedirectResponse(url=ERROR_418_URL, status_code=302)
 
     logger.info(f"Created weblinks with ID: {new_pkid}")
 
@@ -308,7 +303,7 @@ async def view_weblink(
 ):
     user_timezone = request.session.get("timezone", None)
     if user_timezone is None:
-        user_timezone = "America/New_York"
+        user_timezone = DEFAULT_TIMEZONE
 
     link_obj = _safe_record(
         await db_ops.read_one_record(Select(WebLinks).where(WebLinks.pkid == pkid))
@@ -316,7 +311,7 @@ async def view_weblink(
 
     if link_obj is None:
         logger.warning(f"No weblink found with ID: {pkid}")
-        return RedirectResponse(url="/error/404", status_code=303)
+        return RedirectResponse(url=ERROR_404_URL, status_code=303)
 
     # Store the is_youtube property before converting to dict
     link_is_youtube = link_obj.is_youtube
@@ -325,12 +320,12 @@ async def view_weblink(
     # Add the is_youtube property to the dictionary
     link["is_youtube"] = link_is_youtube
 
-    link["date_created"] = await date_functions.timezone_update(
+    link["date_created"] = date_functions.timezone_update(
         user_timezone=user_timezone,
         date_time=link["date_created"],
         friendly_string=True,
     )
-    link["date_updated"] = await date_functions.timezone_update(
+    link["date_updated"] = date_functions.timezone_update(
         user_timezone=user_timezone,
         date_time=link["date_updated"],
         friendly_string=True,
@@ -371,14 +366,12 @@ async def edit_weblink(
     request: Request,
     user_info: dict = Depends(check_login),
 ):
-    # user_identifier = user_info["user_identifier"]
-
     existing = _safe_record(
         await db_ops.read_one_record(Select(WebLinks).where(WebLinks.pkid == pkid))
     )
     if existing is None:
         logger.warning(f"No weblink found with ID: {pkid}")
-        return RedirectResponse(url="/error/404", status_code=302)
+        return RedirectResponse(url=ERROR_404_URL, status_code=302)
 
     existing = existing.to_dict()
 
@@ -406,7 +399,7 @@ async def edit_weblink(
 
     if is_db_error(result):
         logger.error(f"Error updating link: {result}")
-        return RedirectResponse(url="/error/418", status_code=302)
+        return RedirectResponse(url=ERROR_418_URL, status_code=302)
 
     logger.info(f"Updated weblinks with ID: {pkid}")
 
@@ -422,14 +415,13 @@ async def get_update_comment(
     request: Request,
     user_info: dict = Depends(check_login),
 ):
-    user_info["user_identifier"]
 
     link = _safe_record(
         await db_ops.read_one_record(Select(WebLinks).where(WebLinks.pkid == pkid))
     )
     if link is None:
         logger.warning(f"No weblink found with ID: {pkid}")
-        return RedirectResponse(url="/error/404", status_code=302)
+        return RedirectResponse(url=ERROR_404_URL, status_code=302)
 
     # Get categories for the dropdown
     categories = _safe_list(
@@ -480,7 +472,7 @@ async def update_comment(
 
     if is_db_error(result):
         logger.error(f"Error updating link: {result}")
-        return RedirectResponse(url="/error/418", status_code=302)
+        return RedirectResponse(url=ERROR_418_URL, status_code=302)
 
     logger.info(f"Updated weblinks with ID: {pkid}")
     background_tasks.add_task(
@@ -504,7 +496,7 @@ async def delete_weblink_form(
 
     if link is None:
         logger.warning(f"No weblink found with ID: {pkid}")
-        return RedirectResponse(url="/error/404", status_code=302)
+        return RedirectResponse(url=ERROR_404_URL, status_code=302)
 
     # Check if user owns the weblink or is admin
     if link.user_id != user_identifier and not user_info.get("is_admin", False):
@@ -547,7 +539,7 @@ async def delete_weblink(
 
     if link is None:
         logger.warning(f"No weblink found with ID: {pkid} for user: {user_identifier}")
-        return RedirectResponse(url="/error/404", status_code=302)
+        return RedirectResponse(url=ERROR_404_URL, status_code=302)
 
     # Check if user owns the weblink or is admin
     if link.user_id != user_identifier and not user_info.get("is_admin", False):

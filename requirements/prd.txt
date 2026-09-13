@@ -6,7 +6,6 @@ devsetgo-lib[sqlite,postgres]==2026.7.23.1 # Vulnerabilities: None
 fastapi[all]==0.141.1 # From 0.115.3 | Vulnerabilities: None
 pydantic[email]==2.13.5 # Vulnerabilities: None
 python-dateutil==2.9.0.post0 # Vulnerabilities: None
-pytz==2026.3.post1 # From 2025.2 | Vulnerabilities: None
 webauthn==3.0.0 # Vulnerabilities: None
 
 # alembic==1.13.3 # Vulnerabilities: None — no migrations set up yet

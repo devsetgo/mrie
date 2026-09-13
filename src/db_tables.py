@@ -46,6 +46,9 @@ elif settings.db_driver.startswith("postgres"):
 else:
     raise ValueError("Untested database driver")
 
+CASCADE_ALL_DELETE = "all,delete"
+USERS_PKID_FK = "users.pkid"
+
 
 class Users(schema_base, async_db.Base):
     __tablename__ = "users"  # Name of the table in the database
@@ -77,16 +80,18 @@ class Users(schema_base, async_db.Base):
     # Only relationships to tables mrie actually maps. dsg's Users model also
     # relates to Posts, but mrie has no Posts model - leaving that
     # relationship in would break mapper configuration (dangling class name).
-    web_links = relationship("WebLinks", back_populates="users", cascade="all,delete")
-    notes = relationship("Notes", back_populates="users", cascade="all,delete")
+    web_links = relationship(
+        "WebLinks", back_populates="users", cascade=CASCADE_ALL_DELETE
+    )
+    notes = relationship("Notes", back_populates="users", cascade=CASCADE_ALL_DELETE)
     note_metrics = relationship(
-        "NoteMetrics", back_populates="users", cascade="all,delete"
+        "NoteMetrics", back_populates="users", cascade=CASCADE_ALL_DELETE
     )
     notifications = relationship(
-        "Notifications", back_populates="users", cascade="all,delete"
+        "Notifications", back_populates="users", cascade=CASCADE_ALL_DELETE
     )
     webauthn_credentials = relationship(
-        "WebAuthnCredentials", back_populates="users", cascade="all,delete"
+        "WebAuthnCredentials", back_populates="users", cascade=CASCADE_ALL_DELETE
     )
 
 
@@ -94,7 +99,7 @@ class WebAuthnCredentials(schema_base, async_db.Base):
     __tablename__ = "webauthn_credentials"
     __tableargs__ = {"comment": "Registered passkeys for login"}
 
-    user_id = Column(String, ForeignKey("users.pkid"), nullable=False, index=True)
+    user_id = Column(String, ForeignKey(USERS_PKID_FK), nullable=False, index=True)
     credential_id = Column(String, unique=True, index=True, nullable=False)
     public_key = Column(LargeBinary, nullable=False)
     sign_count = Column(Integer, default=0, nullable=False)
@@ -127,7 +132,7 @@ class WebLinks(schema_base, async_db.Base):
     )
     ai_fix = Column(Boolean, default=False)
 
-    user_id = Column(String, ForeignKey("users.pkid"))
+    user_id = Column(String, ForeignKey(USERS_PKID_FK))
     users = relationship("Users", back_populates="web_links")
 
     def to_dict(self):
@@ -193,7 +198,7 @@ class NoteMetrics(schema_base, async_db.Base):
     __tablename__ = "note_metrics"
 
     user_id = Column(
-        String, ForeignKey("users.pkid"), nullable=False, index=True, unique=True
+        String, ForeignKey(USERS_PKID_FK), nullable=False, index=True, unique=True
     )
     word_count = Column(Integer, default=0)
     character_count = Column(Integer, default=0)
@@ -222,7 +227,7 @@ class Notes(schema_base, async_db.Base):
     word_count = Column(Integer)
     character_count = Column(Integer)
     ai_fix = Column(Boolean, default=False)
-    user_id = Column(String, ForeignKey("users.pkid"), nullable=False, index=True)
+    user_id = Column(String, ForeignKey(USERS_PKID_FK), nullable=False, index=True)
     users = relationship("Users", back_populates="notes")
     demo_created = Column(Integer, default=0, index=True)
 
@@ -356,7 +361,7 @@ class Notifications(schema_base, async_db.Base):
         "comment": "User notifications from background tasks and system events"
     }
 
-    user_id = Column(String, ForeignKey("users.pkid"), nullable=False, index=True)
+    user_id = Column(String, ForeignKey(USERS_PKID_FK), nullable=False, index=True)
     message = Column(String(500), nullable=False)
     category = Column(String(50), default="info", index=True)  # ai, error, info
     is_read = Column(Boolean, default=False, index=True)

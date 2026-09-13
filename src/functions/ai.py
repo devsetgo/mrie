@@ -25,6 +25,8 @@ from src.settings import settings
 
 from ._names import names
 
+_LETTERS_ONLY_RE = "[a-zA-Z]+"
+
 try:
     from nameparser import HumanName
 except ImportError:
@@ -115,7 +117,9 @@ async def get_analysis(content: str, mood_process: str = None) -> dict:
         raw_tags = parsed.get("tags", [])
         if not isinstance(raw_tags, list):
             raw_tags = []
-        raw_tags = ["".join(re.findall("[a-zA-Z]+", str(t))) for t in raw_tags if t]
+        raw_tags = [
+            "".join(re.findall(_LETTERS_ONLY_RE, str(t))) for t in raw_tags if t
+        ]
         tags_dict = tag_check({"tags": raw_tags})
 
         summary = str(parsed.get("summary", "")).strip()
@@ -195,7 +199,9 @@ async def get_blog_post_analysis(
         raw_tags = parsed.get("tags", [])
         if not isinstance(raw_tags, list):
             raw_tags = []
-        raw_tags = ["".join(re.findall("[a-zA-Z]+", str(t))) for t in raw_tags if t]
+        raw_tags = [
+            "".join(re.findall(_LETTERS_ONLY_RE, str(t))) for t in raw_tags if t
+        ]
         tags_dict = tag_check({"tags": raw_tags})
 
         return {
@@ -267,7 +273,7 @@ async def get_tags(
 
     # Remove any numbers or symbols from the items in the list
     response_content = [
-        "".join(re.findall("[a-zA-Z]+", item)) for item in response_content
+        "".join(re.findall(_LETTERS_ONLY_RE, item)) for item in response_content
     ]
 
     # Store the keywords in a dictionary
@@ -511,7 +517,7 @@ async def get_mood(content: str, temperature: float = temperature) -> dict:
     return response_dict
 
 
-async def analyze_post(content: str, temperature: float = temperature) -> dict:
+async def analyze_post(content: str) -> dict:
     """Analyzes a post. Delegates to get_analysis() for a single API call."""
     logger.info("Starting analyze_post function")
     data = await get_analysis(content=content)

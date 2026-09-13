@@ -37,7 +37,7 @@ def add_middleware(app: FastAPI) -> NoReturn:  # pragma: no cover
     # The max_age argument specifies the maximum age of the session cookie in seconds
     app.add_middleware(
         SessionMiddleware,
-        secret_key=settings.session_secret_key,
+        secret_key=settings.session_secret_key.get_secret_value(),
         same_site=settings.same_site,  # can be Lax or None, but CSRF will be needed for None
         https_only=settings.https_only,
         max_age=settings.max_age,

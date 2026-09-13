@@ -33,7 +33,7 @@ import asyncio
 import csv
 import itertools
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from dateutil.parser import parse
 from dateutil.tz import UTC
@@ -128,7 +128,9 @@ async def read_notes_from_file(csv_file, user_id: str):
             csv_file, desc="Importing exported notes (no AI)", total=note_count
         ):
             count += 1
-            date_created = parse_date(c["Date Created"]) or datetime.utcnow()
+            date_created = parse_date(c["Date Created"]) or datetime.now(
+                timezone.utc
+            ).replace(tzinfo=None)
             note_text = c.get("Note") or ""
             summary_text = c.get("Summary") or ""
             mood = (c.get("Mood") or "").strip().lower() or "neutral"
@@ -217,7 +219,7 @@ async def read_notes_from_file(csv_file, user_id: str):
 
     logger.info(f"Notes imoorted: {count}")
     # Process the notes with AI
-    await process_ai(list_of_ids=ai_ids, user_identifier=user_id)
+    await process_ai(list_of_ids=ai_ids)
     # Update the notes metrics
     await notes_metrics.update_notes_metrics(user_id=user_id)
 
@@ -255,9 +257,7 @@ def parse_date(date_created):
     return dt
 
 
-async def process_note(
-    note_id: str, semaphore: asyncio.Semaphore, user_identifier: str
-):
+async def process_note(note_id: str, semaphore: asyncio.Semaphore):
     async with semaphore:
         try:
             query = Select(Notes).where(Notes.pkid == note_id)
@@ -303,11 +303,9 @@ async def process_note(
             logger.error(f"Error processing note ID {note_id}: {e}")
 
 
-async def process_ai(list_of_ids: list, user_identifier: str):
+async def process_ai(list_of_ids: list):
     semaphore = asyncio.Semaphore(20)  # Limit to 20 concurrent tasks
-    tasks = [
-        process_note(note_id, semaphore, user_identifier) for note_id in list_of_ids
-    ]
+    tasks = [process_note(note_id, semaphore) for note_id in list_of_ids]
     for chunk in async_tqdm(
         [tasks[i : i + 20] for i in range(0, len(tasks), 20)], desc="AI processing"
     ):

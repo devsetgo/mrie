@@ -48,7 +48,7 @@ async def check_user_identifier(request):
             raise HTTPException(status_code=401, detail="Unauthorized")
 
 
-async def check_session_expiry(request):
+def check_session_expiry(request):
     """
     Checks if the session has expired.
 
@@ -98,7 +98,7 @@ async def check_login(request: Request):
     logger.debug(f"check login initial: {request.state.user_info}")
 
     await check_user_identifier(request)
-    await check_session_expiry(request)
+    check_session_expiry(request)
 
     logger.debug(f"check login return: {request.state.user_info}")
 
