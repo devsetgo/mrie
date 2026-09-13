@@ -1,20 +1,15 @@
 # -*- coding: utf-8 -*-
 import time
-from contextlib import asynccontextmanager
 from typing import Any, Dict, NoReturn
 
-from dsg_lib.common_functions import logging_config
 from dsg_lib.fastapi_functions import http_codes, system_health_endpoints
 from fastapi import FastAPI, Request
-from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from loguru import logger
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from src.resources import templates
-from src.settings import settings
 from src.endpoints import about, notes, users, web_links
 
 
@@ -144,8 +139,6 @@ def create_routes(app: FastAPI) -> NoReturn:
         # redirect back here again via 307, looping forever
         # (net::ERR_TOO_MANY_REDIRECTS).
         return RedirectResponse(url=f"/error/{error_code}", status_code=303)
-
-    show_route: bool = False
 
     @app.get("/error/{error_code}", include_in_schema=False)
     async def error_page(request: Request, error_code: int) -> Dict[str, Any]:

@@ -10,6 +10,7 @@ on. mrie creates its own tables on startup (see resources.py); there is no
 Alembic migration setup yet - add one if/when schema changes need more care
 than create_all()'s "create missing tables" behavior provides.
 """
+
 import re
 
 from dsg_lib.async_database_functions import base_schema
@@ -339,9 +340,7 @@ def note_on_change(mapper, connection, target):
 
 class AboutPage(schema_base, async_db.Base):
     __tablename__ = "about_page"
-    __tableargs__ = {
-        "comment": "Singleton public About page content, admin-editable"
-    }
+    __tableargs__ = {"comment": "Singleton public About page content, admin-editable"}
 
     content = Column(String, nullable=False, default="")
 

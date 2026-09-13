@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Notes CRUD coverage. Creating a note schedules process_ai_analysis_background
 as a FastAPI BackgroundTask, which TestClient runs synchronously as part of
@@ -6,6 +7,7 @@ environment (no OPENAI_KEY configured), but that failure is caught inside the
 background task itself (see src/endpoints/notes.py) and turned into a safe
 ai_fix=True update, so no mocking is required here for notes.
 """
+
 from datetime import datetime, timedelta, timezone
 
 
@@ -182,9 +184,7 @@ def test_notes_pagination_with_tags_filter(logged_in_client):
     )
     assert edit.status_code == 302
 
-    matching = client.get(
-        "/notes/pagination", params={"tags": "pytestuniquetag"}
-    )
+    matching = client.get("/notes/pagination", params={"tags": "pytestuniquetag"})
     assert matching.status_code == 200
     assert unique_summary in matching.text
 
@@ -252,7 +252,7 @@ def test_notes_bulk_import_export_format(logged_in_client):
         "Character Count,Date Created\n"
         "abc123,user-x,positive,happy,"
         '"Bulk imported note content.","bulk-import-summary-marker",'
-        '"[\'tag1\']",3,26,01/20/2024\n'
+        "\"['tag1']\",3,26,01/20/2024\n"
     )
     response = logged_in_client.post(
         "/notes/bulk",

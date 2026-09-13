@@ -26,6 +26,13 @@ jobs:
       ADMIN_USER: ci-admin
       SESSION_SECRET_KEY: ci-test-session-secret-not-a-real-secret
       REGISTRATION_BOOTSTRAP_TOKEN: ci-test-bootstrap-token
+      # Also required - Settings.openai_key is typed SecretStr with a `None`
+      # default, which pydantic only accepts because a real OPENAI_KEY is
+      # always present in the local .env; CI has no .env, so this must be
+      # supplied explicitly or Settings() fails to construct at import time,
+      # before any test runs (ai.py's own OpenAI calls are never exercised
+      # in this suite - see PROJECT_STATUS.md - so the value itself is unused).
+      OPENAI_KEY: ci-test-openai-key-not-a-real-secret
     steps:
       - uses: actions/checkout@v7
         with:

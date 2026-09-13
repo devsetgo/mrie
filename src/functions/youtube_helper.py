@@ -16,6 +16,7 @@ Author:
     Mike Ryan
     MIT Licensed
 """
+
 import re
 from typing import Dict
 from urllib.parse import urlparse

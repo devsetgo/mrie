@@ -27,6 +27,7 @@ Author:
     Mike Ryan
     MIT Licensed
 """
+
 import ast
 import asyncio
 import csv
@@ -89,7 +90,7 @@ def parse_tags_field(raw) -> list:
         parsed = ast.literal_eval(raw)
         if isinstance(parsed, (list, tuple)):
             return [str(t).strip() for t in parsed if str(t).strip()]
-    except (ValueError, SyntaxError):
+    except ValueError, SyntaxError:
         pass
     return [t.strip() for t in raw.split(",") if t.strip()]
 
@@ -123,7 +124,9 @@ async def read_notes_from_file(csv_file, user_id: str):
 
     if csv_format == "export":
         count = 0
-        for c in tqdm(csv_file, desc="Importing exported notes (no AI)", total=note_count):
+        for c in tqdm(
+            csv_file, desc="Importing exported notes (no AI)", total=note_count
+        ):
             count += 1
             date_created = parse_date(c["Date Created"]) or datetime.utcnow()
             note_text = c.get("Note") or ""
@@ -151,7 +154,9 @@ async def read_notes_from_file(csv_file, user_id: str):
                     **derived,
                 )
             )
-        logger.info(f"Imported {count} notes from export format, no AI processing queued")
+        logger.info(
+            f"Imported {count} notes from export format, no AI processing queued"
+        )
         await notes_metrics.update_notes_metrics(user_id=user_id)
         return
 
@@ -270,7 +275,11 @@ async def process_note(
                 final_mood = stored_mood
             else:
                 ai_mood = analysis.get("mood") or {}
-                final_mood = ai_mood.get("mood", "neutral") if isinstance(ai_mood, dict) else "neutral"
+                final_mood = (
+                    ai_mood.get("mood", "neutral")
+                    if isinstance(ai_mood, dict)
+                    else "neutral"
+                )
                 if final_mood not in ("positive", "negative", "neutral"):
                     final_mood = "neutral"
 
@@ -326,8 +335,12 @@ def validate_csv_headers(csv_reader: csv.DictReader):
 
     # Neither accepted format matched - report against the simple format
     # (the common case) but mention both in the error for clarity.
-    missing_headers = [header for header in SIMPLE_HEADERS if header not in (headers or [])]
-    extra_headers = [header for header in (headers or []) if header not in SIMPLE_HEADERS]
+    missing_headers = [
+        header for header in SIMPLE_HEADERS if header not in (headers or [])
+    ]
+    extra_headers = [
+        header for header in (headers or []) if header not in SIMPLE_HEADERS
+    ]
 
     data = {
         "status": {

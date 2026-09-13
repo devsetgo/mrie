@@ -5,11 +5,11 @@ from dsg_lib.common_functions import logging_config
 from fastapi import FastAPI, Request
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import RedirectResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from loguru import logger
 
-from src.resources import shutdown_event, startup_event
+from src.app_middleware import add_middleware
+from src.app_routes import create_routes
+from src.resources import shutdown_event, startup_event, templates
 from src.settings import settings
 
 logging_config.config_log(
@@ -53,10 +53,6 @@ app = FastAPI(
 
 # Add GZip middleware
 app.add_middleware(GZipMiddleware, minimum_size=1000)
-
-from src.app_routes import create_routes
-from src.resources import templates
-from src.app_middleware import add_middleware
 
 # add middleware and routes to the application
 add_middleware(app)

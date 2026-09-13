@@ -139,7 +139,7 @@ async def capture_full_page_screenshot(url: str, pkid: str) -> bytes:
                 )
                 cookie_button.click()
                 time.sleep(1)
-            except:
+            except Exception:
                 pass  # Cookie banner might not appear
 
         # Set the window size to the full page

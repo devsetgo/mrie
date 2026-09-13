@@ -1,9 +1,11 @@
+# -*- coding: utf-8 -*-
 """
 Unit tests for src/functions/db_guards.py - pure functions, no database
 access needed. These pin down the exact contract every db_ops call site in
 the app relies on (see the create_one -> execute_one migration notes in
 CLAUDE.md / PROJECT_STATUS.md for why this distinction matters).
 """
+
 from dsg_lib.async_database_functions.database_operations import DatabaseErrorResult
 
 from src.functions.db_guards import is_db_error, safe_list, safe_record

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 About page edit + image upload coverage (src/endpoints/about.py). Viewing
 /about itself is already covered in test_main.py.
@@ -8,6 +9,7 @@ place in the test suite with a real filesystem side effect; each test that
 uploads a file removes it again in a `finally` block to avoid littering the
 repo working tree.
 """
+
 import base64
 import os
 

@@ -5,6 +5,7 @@ local development. Only ever invoked from resources.py's startup_event,
 which gates this behind `not settings.db_driver.startswith("postgres")` -
 it must never run against the shared production Postgres database dsg owns.
 """
+
 import random
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -34,8 +35,20 @@ DEMO_CATEGORIES = ["News", "Programming", "Science", "Technology", "Other"]
 
 # Used in place of `silly` when it's not installed - see requirements/prd.txt
 _FALLBACK_WORDS = [
-    "quiet", "bright", "steady", "curious", "quick", "calm", "bold", "gentle",
-    "restless", "hopeful", "distant", "familiar", "ordinary", "strange",
+    "quiet",
+    "bright",
+    "steady",
+    "curious",
+    "quick",
+    "calm",
+    "bold",
+    "gentle",
+    "restless",
+    "hopeful",
+    "distant",
+    "familiar",
+    "ordinary",
+    "strange",
 ]
 
 
@@ -47,6 +60,7 @@ def _demo_paragraph(length: int) -> str:
 
 def _demo_adjective() -> str:
     return silly.adjective() if silly else random.choice(_FALLBACK_WORDS)
+
 
 DEMO_WEB_LINKS = [
     {
@@ -123,9 +137,9 @@ async def seed_demo_data(qty_notes: int = 40) -> None:
         note_text = _demo_paragraph(length=random.randint(5, 20))
         summary_text = note_text[:50]
         days_ago = random.randint(0, 365 * 2)
-        date_created = (
-            datetime.now(timezone.utc) - timedelta(days=days_ago)
-        ).replace(tzinfo=None)
+        date_created = (datetime.now(timezone.utc) - timedelta(days=days_ago)).replace(
+            tzinfo=None
+        )
         mood = random.choice(moods)
         mood_analysis = random.choice(mood_analysis_choices)
         tags = list({_demo_adjective() for _ in range(random.randint(1, 3))})
@@ -170,9 +184,13 @@ async def seed_demo_data(qty_notes: int = 40) -> None:
                 # Same before_insert-bypass reasoning as Notes above - see
                 # compute_weblink_ai_fix() in db_tables.py.
                 ai_fix=compute_weblink_ai_fix(
-                    image_preview_data=None, title=item["title"], summary=item["summary"]
+                    image_preview_data=None,
+                    title=item["title"],
+                    summary=item["summary"],
                 ),
             )
         )
 
-    logger.info(f"Seeded {qty_notes} demo notes and {len(DEMO_WEB_LINKS)} demo weblinks")
+    logger.info(
+        f"Seeded {qty_notes} demo notes and {len(DEMO_WEB_LINKS)} demo weblinks"
+    )

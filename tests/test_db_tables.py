@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Direct unit tests for src/db_tables.py.
 
@@ -13,6 +14,7 @@ functions removed from notes_metrics.py - they're unit-tested directly
 here by calling the listener functions with a constructed instance,
 exactly what SQLAlchemy would do internally on a real flush.
 """
+
 from src.db_tables import (
     AboutPage,
     Notes,

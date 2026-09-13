@@ -10,7 +10,6 @@ from typing import Optional
 from loguru import logger  # For logging
 from pydantic import (  # For validating data
     ConfigDict,
-    EmailStr,
     Field,
     SecretStr,
     model_validator,

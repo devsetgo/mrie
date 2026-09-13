@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Notes CSV import coverage (src/functions/note_import.py). The "export"
 format (dsg's Notes Export CSV, no AI call at all) is already covered via
@@ -6,13 +7,13 @@ AI-processing branch (process_ai/process_note - mocking ai.get_analysis,
 since there's no real OpenAI key in this environment), plus the module's
 pure helper functions directly (no DB, no HTTP, no mocking needed).
 """
+
 import csv
 import io
 
 import pytest
 
 from src.functions import note_import
-
 
 # ---- pure helper functions ----
 
@@ -160,7 +161,8 @@ def test_bulk_import_simple_format_defers_to_ai_mood_when_invalid(
     assert response.status_code == 302
 
     listing = logged_in_client.get(
-        "/notes/pagination", params={"search_term": "ai-import-marker-xyz", "mood": "positive"}
+        "/notes/pagination",
+        params={"search_term": "ai-import-marker-xyz", "mood": "positive"},
     )
     assert "ai-import-marker-xyz" in listing.text
 

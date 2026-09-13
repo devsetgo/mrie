@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Weblinks CRUD coverage. Unlike notes, create_link/edit_weblink call the AI
 functions inline (not backgrounded) with no try/except around them, and
@@ -6,6 +7,7 @@ environment doesn't have - so both are mocked here rather than skipped, to
 keep the test deterministic, fast, and network-free (no real request should
 ever leave the test process).
 """
+
 import pytest
 
 
@@ -125,7 +127,9 @@ def test_weblinks_bulk_form(logged_in_client):
 
 
 def test_weblinks_bulk_import(logged_in_client, mock_weblink_externals):
-    csv_content = "public,url,category\nFalse,https://example.com/bulk-import,Programming\n"
+    csv_content = (
+        "public,url,category\nFalse,https://example.com/bulk-import,Programming\n"
+    )
     response = logged_in_client.post(
         "/weblinks/bulk",
         files={"csv_file": ("weblinks.csv", csv_content, "text/csv")},

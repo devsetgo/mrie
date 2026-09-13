@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Auth flow coverage for src/endpoints/users.py. The actual WebAuthn ceremony
 (login/register *verify* with a real attestation/assertion object) needs a
@@ -8,11 +9,15 @@ bootstrap token), the dev-login bypass, and the verify endpoints' own
 failure paths that happen before any cryptographic verification (missing
 session challenge, malformed body, unknown credential).
 """
+
 from types import SimpleNamespace
 
 import pytest
 from dsg_lib.async_database_functions.database_operations import DatabaseErrorResult
-from webauthn.helpers.exceptions import InvalidAuthenticationResponse, InvalidRegistrationResponse
+from webauthn.helpers.exceptions import (
+    InvalidAuthenticationResponse,
+    InvalidRegistrationResponse,
+)
 
 from src.endpoints import users as users_module
 from src.settings import settings
@@ -186,7 +191,9 @@ def test_register_options_denied_when_credential_already_exists(client, monkeypa
     assert response.status_code == 403
 
 
-def test_register_options_denied_when_bootstrap_token_not_configured(client, monkeypatch):
+def test_register_options_denied_when_bootstrap_token_not_configured(
+    client, monkeypatch
+):
     # Fails closed (not open) when REGISTRATION_BOOTSTRAP_TOKEN itself isn't
     # set, regardless of what header the caller supplies.
     monkeypatch.setattr(settings, "registration_bootstrap_token", None)

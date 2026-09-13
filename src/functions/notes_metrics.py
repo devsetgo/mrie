@@ -5,6 +5,7 @@ Author:
     Mike Ryan
     MIT Licensed
 """
+
 import datetime
 import json
 import statistics
@@ -92,7 +93,9 @@ def _compute_milestones(
         first_date = min(note["date_created"] for note in notes)
         years_active = max(
             0,
-            (datetime.datetime.now(datetime.timezone.utc).date() - first_date.date()).days
+            (
+                datetime.datetime.now(datetime.timezone.utc).date() - first_date.date()
+            ).days
             // 365,
         )
         if years_active >= 1:
@@ -263,15 +266,23 @@ async def _compute_metrics_bundle(notes: list[dict[str, Any]]) -> dict[str, Any]
             tag_deltas.append((tag, delta))
 
     rising_tags = dict(
-        sorted([item for item in tag_deltas if item[1] > 0], key=lambda item: item[1], reverse=True)[:5]
+        sorted(
+            [item for item in tag_deltas if item[1] > 0],
+            key=lambda item: item[1],
+            reverse=True,
+        )[:5]
     )
     falling_tags = dict(
-        sorted([item for item in tag_deltas if item[1] < 0], key=lambda item: item[1])[:5]
+        sorted([item for item in tag_deltas if item[1] < 0], key=lambda item: item[1])[
+            :5
+        ]
     )
 
-    mood_stability_score = round(
-        statistics.pstdev(mood_mean_by_month.values()), 3
-    ) if len(mood_mean_by_month) > 1 else 0.0
+    mood_stability_score = (
+        round(statistics.pstdev(mood_mean_by_month.values()), 3)
+        if len(mood_mean_by_month) > 1
+        else 0.0
+    )
 
     writing_streak = _compute_writing_streaks(unique_written_dates)
     milestones = _compute_milestones(
@@ -284,9 +295,11 @@ async def _compute_metrics_bundle(notes: list[dict[str, Any]]) -> dict[str, Any]
     word_trend_by_month = {
         month: {
             "total_words": data["word_count"],
-            "avg_words_per_note": round(
-                data["word_count"] / data["note_count"], 2
-            ) if data["note_count"] else 0,
+            "avg_words_per_note": (
+                round(data["word_count"] / data["note_count"], 2)
+                if data["note_count"]
+                else 0
+            ),
             "note_count": data["note_count"],
         }
         for month, data in by_month.items()

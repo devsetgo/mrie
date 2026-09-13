@@ -11,6 +11,7 @@ Author:
     Mike Ryan
     MIT Licensed
 """
+
 import ast
 import json
 import re
@@ -121,19 +122,25 @@ async def get_analysis(content: str, mood_process: str = None) -> dict:
 
         mood_analysis_val = (parsed.get("mood_analysis") or "").strip().lower()
         if mood_analysis_val not in moods_list:
-            logger.warning(f"get_analysis: unexpected mood_analysis '{mood_analysis_val}', defaulting to 'neutral'")
+            logger.warning(
+                f"get_analysis: unexpected mood_analysis '{mood_analysis_val}', defaulting to 'neutral'"
+            )
             mood_analysis_val = "neutral"
 
         mood_val = (parsed.get("mood") or "").strip().lower()
         if mood_val not in ("positive", "negative", "neutral"):
-            logger.warning(f"get_analysis: unexpected mood '{mood_val}', defaulting to 'neutral'")
+            logger.warning(
+                f"get_analysis: unexpected mood '{mood_val}', defaulting to 'neutral'"
+            )
             mood_val = "neutral"
 
         data = {
-            "tags": tags_dict,            # {"tags": [...]} — callers use analysis["tags"]["tags"]
+            "tags": tags_dict,  # {"tags": [...]} — callers use analysis["tags"]["tags"]
             "summary": summary,
             "mood_analysis": mood_analysis_val,
-            "mood": {"mood": mood_val},   # {"mood": "..."} — note_import uses analysis["mood"]["mood"]
+            "mood": {
+                "mood": mood_val
+            },  # {"mood": "..."} — note_import uses analysis["mood"]["mood"]
         }
         logger.info("get_analysis completed (single call)")
         logger.debug(f"analysis: {data}")
@@ -192,7 +199,9 @@ async def get_blog_post_analysis(
         tags_dict = tag_check({"tags": raw_tags})
 
         return {
-            "tags": tags_dict["tags"],    # flat list — blog_posts.py uses analysis["tags"] directly
+            "tags": tags_dict[
+                "tags"
+            ],  # flat list — blog_posts.py uses analysis["tags"] directly
             "summary": str(parsed.get("summary", "")).strip(),
         }
 

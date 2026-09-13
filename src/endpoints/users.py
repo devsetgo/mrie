@@ -28,6 +28,7 @@ Author:
     Mike Ryan
     MIT Licensed
 """
+
 import secrets
 import uuid
 from datetime import datetime, timedelta
@@ -43,7 +44,10 @@ from webauthn.helpers import (
     parse_authentication_credential_json,
     parse_registration_credential_json,
 )
-from webauthn.helpers.exceptions import InvalidAuthenticationResponse, InvalidRegistrationResponse
+from webauthn.helpers.exceptions import (
+    InvalidAuthenticationResponse,
+    InvalidRegistrationResponse,
+)
 from webauthn.helpers.structs import (
     AuthenticatorSelectionCriteria,
     PublicKeyCredentialDescriptor,
@@ -166,7 +170,9 @@ async def login_options(request: Request):
         user_verification=UserVerificationRequirement.REQUIRED,
     )
     request.session[CHALLENGE_SESSION_KEY] = bytes_to_base64url(options.challenge)
-    return Response(content=webauthn.options_to_json(options), media_type="application/json")
+    return Response(
+        content=webauthn.options_to_json(options), media_type="application/json"
+    )
 
 
 @router.post("/login/verify")
@@ -186,8 +192,7 @@ async def login_verify(request: Request):
     stored_cred = safe_record(
         await db_ops.read_one_record(
             Select(WebAuthnCredentials).where(
-                WebAuthnCredentials.credential_id
-                == bytes_to_base64url(parsed.raw_id)
+                WebAuthnCredentials.credential_id == bytes_to_base64url(parsed.raw_id)
             )
         )
     )
@@ -210,7 +215,9 @@ async def login_verify(request: Request):
         raise HTTPException(status_code=401, detail="Passkey verification failed")
 
     user = safe_record(
-        await db_ops.read_one_record(Select(Users).where(Users.pkid == stored_cred.user_id))
+        await db_ops.read_one_record(
+            Select(Users).where(Users.pkid == stored_cred.user_id)
+        )
     )
     if user is None or user.user_name != settings.admin_user.get_secret_value():
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -218,10 +225,14 @@ async def login_verify(request: Request):
     await db_ops.execute_one(
         update(WebAuthnCredentials)
         .where(WebAuthnCredentials.pkid == stored_cred.pkid)
-        .values(sign_count=verification.new_sign_count, date_last_used=datetime.utcnow())
+        .values(
+            sign_count=verification.new_sign_count, date_last_used=datetime.utcnow()
+        )
     )
     await db_ops.execute_one(
-        update(Users).where(Users.pkid == user.pkid).values(date_last_login=datetime.utcnow())
+        update(Users)
+        .where(Users.pkid == user.pkid)
+        .values(date_last_login=datetime.utcnow())
     )
 
     request.session["user_identifier"] = user.pkid
@@ -239,7 +250,9 @@ async def login_verify(request: Request):
 @router.get("/register")
 async def register_page(request: Request):
     if not await registration_open(request):
-        return RedirectResponse(url="/?login_error=registration_closed", status_code=303)
+        return RedirectResponse(
+            url="/?login_error=registration_closed", status_code=303
+        )
     return templates.TemplateResponse(
         request=request, name="users/register.html", context={"request": request}
     )
@@ -254,7 +267,9 @@ async def register_options(request: Request):
 
     existing_creds = safe_list(
         await db_ops.read_query(
-            Select(WebAuthnCredentials).where(WebAuthnCredentials.user_id == admin_user.pkid)
+            Select(WebAuthnCredentials).where(
+                WebAuthnCredentials.user_id == admin_user.pkid
+            )
         )
     )
     exclude_ids = [cred.credential_id for cred in existing_creds]
@@ -275,7 +290,9 @@ async def register_options(request: Request):
         ],
     )
     request.session[CHALLENGE_SESSION_KEY] = bytes_to_base64url(options.challenge)
-    return Response(content=webauthn.options_to_json(options), media_type="application/json")
+    return Response(
+        content=webauthn.options_to_json(options), media_type="application/json"
+    )
 
 
 @router.post("/register/verify")
