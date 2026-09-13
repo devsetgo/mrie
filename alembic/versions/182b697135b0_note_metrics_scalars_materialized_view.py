@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """note_metrics_scalars materialized view
 
 Revision ID: 182b697135b0

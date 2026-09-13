@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """baseline: existing schema
 
 Revision ID: aba742792ce0
