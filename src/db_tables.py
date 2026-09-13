@@ -28,7 +28,12 @@ from sqlalchemy import (
     event,
     func,
 )
-from sqlalchemy.orm import class_mapper, relationship
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import (
+    class_mapper,
+    declarative_base as _declarative_base,
+    relationship,
+)
 
 from .db_init import async_db
 from .functions.encrypt import (
@@ -244,38 +249,43 @@ NOTE_METRICS_SCALAR_FIELDS = (
 )
 
 
-if settings.is_postgres:
-    from sqlalchemy.dialects.postgresql import JSONB
-    from sqlalchemy.orm import declarative_base as _declarative_base
+# A deliberately separate declarative base (not async_db.Base) - this maps
+# a read-only materialized view, not a table Alembic/create_tables() should
+# ever try to CREATE TABLE for. Keeping it off async_db.Base's metadata
+# means `alembic revision --autogenerate` never mistakes the view for a
+# missing table. Never insert/update through this class - its data only
+# ever changes via REFRESH MATERIALIZED VIEW (see
+# notes_metrics.py::update_notes_metrics()).
+#
+# Defined unconditionally, regardless of settings.is_postgres: it lives on
+# its own isolated declarative base, so its mere existence can never cause
+# SQLite's create_tables() (which only walks async_db.Base.metadata) to
+# attempt a "note_metrics_scalars" table, and importing JSONB doesn't
+# require an actual Postgres connection - it's a plain type descriptor.
+# Only *querying* this class is gated behind settings.is_postgres
+# (get_or_refresh() in notes_metrics.py); leaving the class itself always
+# real (never None) avoids a class-of-bug where a future call site that
+# forgets that guard gets a confusing "NoneType is not callable" instead
+# of a clear error, and lets this class's coverage be exercised under any
+# driver.
+_ViewBase = _declarative_base()
 
-    # A deliberately separate declarative base (not async_db.Base) - this
-    # maps a read-only materialized view, not a table Alembic/create_tables()
-    # should ever try to CREATE TABLE for. Keeping it off async_db.Base's
-    # metadata means `alembic revision --autogenerate` never mistakes the
-    # view for a missing table. Never insert/update through this class -
-    # its data only ever changes via REFRESH MATERIALIZED VIEW (see
-    # notes_metrics.py::update_notes_metrics()).
-    _ViewBase = _declarative_base()
 
-    class NoteMetricsScalars(_ViewBase):
-        __tablename__ = "note_metrics_scalars"
+class NoteMetricsScalars(_ViewBase):
+    __tablename__ = "note_metrics_scalars"
 
-        user_id = Column(String, primary_key=True)
-        word_count = Column(Integer)
-        character_count = Column(Integer)
-        note_count = Column(Integer)
-        ai_fix_count = Column(Integer)
-        total_unique_tag_count = Column(Integer)
-        mood_metric = Column(JSONB)
+    user_id = Column(String, primary_key=True)
+    word_count = Column(Integer)
+    character_count = Column(Integer)
+    note_count = Column(Integer)
+    ai_fix_count = Column(Integer)
+    total_unique_tag_count = Column(Integer)
+    mood_metric = Column(JSONB)
 
-        def to_dict(self):
-            return {
-                c.key: getattr(self, c.key)
-                for c in class_mapper(self.__class__).columns
-            }
-
-else:
-    NoteMetricsScalars = None
+    def to_dict(self):
+        return {
+            c.key: getattr(self, c.key) for c in class_mapper(self.__class__).columns
+        }
 
 
 class Notes(schema_base, async_db.Base):

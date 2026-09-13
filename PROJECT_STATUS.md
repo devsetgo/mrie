@@ -37,10 +37,21 @@ Auth below.
   trends) stays a stored, Python-computed column on every dialect — that
   logic can't be expressed as a SQL view. On SQLite, all fields stay
   ordinary stored columns (materialized views don't exist there).
-  **Known gap**: this Postgres-only code path is untested by `pytest`
-  (which stays on the memory driver) — only exercised via `alembic upgrade
-  head` in CI and manual verification. A dedicated Postgres-targeted smoke
-  check is a reasonable follow-up.
+  **Known gap**: `NoteMetricsScalars` (src/db_tables.py) is defined
+  unconditionally (not gated by driver) specifically so it can be
+  monkeypatched into service under the memory driver — see
+  tests/test_notes_metrics.py and tests/test_resources.py, which cover the
+  Python-side branching (the concurrent view-refresh/write, the
+  merge/fallback logic, the startup fail-fast check) this way. What
+  remains genuinely untested by `pytest` is the actual SQL these code
+  paths drive against a real Postgres server — the materialized view's
+  `CREATE MATERIALIZED VIEW`/`REFRESH MATERIALIZED VIEW` statements
+  themselves, and the two import-time dialect-dispatch branches in
+  db_tables.py (`schema_base`/`Notes.__table_args__`'s postgres arm) that
+  can only be exercised by a process that was actually started with
+  `DB_DRIVER=postgres` — only exercised via `alembic upgrade head` in CI
+  and manual verification. A dedicated Postgres-targeted `pytest` job is a
+  reasonable follow-up for that remaining slice.
 - Local dev: `DB_DRIVER=postgres`, pointed at the devcontainer's
   `postgresdb` service (`.devcontainer/docker-compose.yml`) — matches
   production. `demo_data.py` seeds an admin user + demo notes/weblinks
@@ -370,9 +381,13 @@ touches the database needs this fixture, not a bare `TestClient(app)`.
    the `NoteMetrics`-as-a-view work. `create_tables()` is retained only for
    SQLite (both the in-memory test driver and `run-dev-workers`'s
    file-based one) — Alembic manages Postgres exclusively. Known gap: the
-   Postgres-only code paths this unlocked (the materialized view,
-   `update_notes_metrics()`'s Postgres branch) aren't exercised by
-   `pytest`, only by `alembic upgrade head` in CI and manual verification.
+   actual SQL behind the materialized view and `NoteMetricsScalars`'
+   import-time dialect dispatch still isn't exercised by `pytest`, only by
+   `alembic upgrade head` in CI and manual verification — though the
+   Python-side branching around them (`update_notes_metrics()`'s Postgres
+   branch, `get_or_refresh()`'s merge logic, the startup fail-fast check)
+   is now covered via monkeypatching (see tests/test_notes_metrics.py,
+   tests/test_resources.py).
 4. **Web framework (FastAPI vs. Robyn)**: still explicitly unresolved.
    Don't assume a direction or start a migration unprompted.
 
