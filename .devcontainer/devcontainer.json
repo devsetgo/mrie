@@ -29,6 +29,7 @@
 			},
 			"extensions": [
 				"Anthropic.claude-code",
+				"peakchen90.open-html-in-browser",
 				"streetsidesoftware.code-spell-checker",
 				"GitHub.copilot",
 				"GitHub.copilot-chat",
