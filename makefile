@@ -82,7 +82,7 @@ reset-dev-workers-db:  # Delete the SQLite file run-dev-workers created, for a c
 
 test:  # Run tests and generate coverage report
 	pre-commit run -a
-	PYTHONPATH=. pytest
+	PYTHONPATH=. pytest -n auto --maxprocesses=8
 	sed -i 's|<source>/workspaces/mrie</source>|<source>/github/workspace/mrie</source>|' /workspaces/mrie/coverage.xml
 	genbadge coverage -i /workspaces/mrie/coverage.xml
 
