@@ -9,8 +9,8 @@ from fastapi.staticfiles import StaticFiles
 from loguru import logger
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from src.resources import templates
 from src.endpoints import about, notes, users, web_links
+from src.resources import templates
 
 
 def create_routes(app: FastAPI) -> NoReturn:

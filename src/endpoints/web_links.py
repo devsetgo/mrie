@@ -51,13 +51,11 @@ from sqlalchemy import Select, asc, delete, func, insert, or_, update
 
 from ..db_tables import Categories, WebLinks, compute_weblink_ai_fix
 from ..functions import ai, date_functions, link_import, link_preview
-from ..functions.pagination import build_page_url
-from ..functions.db_guards import (
-    is_db_error,
-    safe_list as _safe_list,
-    safe_record as _safe_record,
-)
+from ..functions.db_guards import is_db_error
+from ..functions.db_guards import safe_list as _safe_list
+from ..functions.db_guards import safe_record as _safe_record
 from ..functions.login_required import check_login
+from ..functions.pagination import build_page_url
 from ..functions.youtube_helper import extract_youtube_video_id, is_youtube_url
 from ..resources import db_ops, templates
 
