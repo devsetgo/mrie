@@ -100,6 +100,27 @@ def test_validate_csv_headers_failure():
     assert "my_note" in result["status"]["missing_headers"]
 
 
+def test_is_header_row_true_for_repeated_header():
+    headers = note_import.EXPORT_HEADERS
+    assert note_import.is_header_row({h: h for h in headers}, headers)
+
+
+def test_is_header_row_case_and_whitespace_insensitive():
+    headers = note_import.SIMPLE_HEADERS
+    row = {"my_note": " My_Note ", "mood": "MOOD", "date_created": "date_created"}
+    assert note_import.is_header_row(row, headers)
+
+
+def test_is_header_row_false_for_real_row():
+    headers = note_import.SIMPLE_HEADERS
+    row = {"my_note": "my_note", "mood": "positive", "date_created": "01/15/2024"}
+    assert not note_import.is_header_row(row, headers)
+
+
+def test_is_header_row_false_without_headers():
+    assert not note_import.is_header_row({}, None)
+
+
 # ---- read_notes_from_file via the /notes/bulk endpoint ----
 
 
@@ -207,3 +228,24 @@ def test_bulk_import_unrecognized_format_is_a_noop(logged_in_client):
         follow_redirects=False,
     )
     assert response.status_code == 303
+
+
+def test_bulk_import_skips_repeated_header_row(logged_in_client):
+    # A second copy of the header line (e.g. concatenated exports) used to be
+    # imported as a real note whose fields were the column names themselves.
+    header = ",".join(note_import.EXPORT_HEADERS)
+    csv_content = (
+        f"{header}\n"
+        f"{header}\n"
+        '1,u,Positive,fine,"Real note body",Sum,"[\'a\']",3,14,01/15/2024 10:00\n'
+    )
+    response = logged_in_client.post(
+        "/notes/bulk",
+        files={"csv_file": ("notes.csv", csv_content, "text/csv")},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    # The header-as-data note shows up with its mood ("Mood") as the card title.
+    listing = logged_in_client.get("/notes/pagination")
+    assert "<strong>Mood</strong>" not in listing.text
