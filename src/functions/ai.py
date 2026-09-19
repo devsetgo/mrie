@@ -14,9 +14,11 @@ Author:
 
 import ast
 import json
+import os
 import re
+import unicodedata
 from functools import lru_cache
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 from httpx import AsyncClient
 from loguru import logger
@@ -25,7 +27,10 @@ from src.settings import settings
 
 from ._names import names
 
-_LETTERS_ONLY_RE = "[a-zA-Z]+"
+# Any Unicode letter, not just a-z: "[a-zA-Z]+" turned "José" into "Jos" and
+# "李伟" into "", so accented and non-Latin names slipped past the name filter
+# and legitimate non-English tags were mangled.
+_LETTERS_ONLY_RE = r"[^\W\d_]+"
 
 try:
     from nameparser import HumanName
@@ -37,14 +42,62 @@ try:
 except ImportError:
     AsyncOpenAI = None
 
-client = (
-    AsyncOpenAI(
-        # This is the default and can be omitted
-        api_key=settings.openai_key.get_secret_value(),
-    )
-    if AsyncOpenAI and settings.openai_key
-    else None
-)
+
+def _client_unavailable_reason() -> Optional[str]:
+    """
+    Returns why no OpenAI client can be built, or None if one can.
+
+    The two preconditions fail for completely different reasons (a missing
+    package vs. a missing setting) and are fixed in completely different
+    places, so they're reported separately - a combined "not installed or
+    not configured" message sends you looking in the wrong place.
+    """
+    if AsyncOpenAI is None:
+        return (
+            "the 'openai' package is not installed (it is commented out of "
+            "requirements/prd.txt by default - see the optional-dependency "
+            "pattern in CLAUDE.md)"
+        )
+    if not settings.openai_key:
+        return "OPENAI_KEY is not set in the environment/.env"
+    return None
+
+
+_client = None
+
+
+def get_client():
+    """
+    Returns the shared AsyncOpenAI client, building it on first use.
+
+    Built lazily rather than at import time: the client used to be a
+    module-level constant, so a process that imported this module before
+    `openai` was installed kept reporting "AI disabled" for its whole
+    lifetime even once the package was present. Settings are still read
+    once per process, so changing OPENAI_KEY in .env does require a
+    restart (uvicorn's --reload watches .py files, not .env).
+    """
+    global _client
+    if _client is None and _client_unavailable_reason() is None:
+        _client = AsyncOpenAI(api_key=settings.openai_key.get_secret_value())
+    return _client
+
+
+def require_client(feature: str):
+    """
+    Returns a usable client or raises with the specific reason it can't.
+
+    `feature` names the caller's capability so the log says what was lost.
+    """
+    client = get_client()
+    if client is None:
+        raise RuntimeError(f"{feature} disabled - {_client_unavailable_reason()}")
+    return client
+
+
+_startup_reason = _client_unavailable_reason()
+if _startup_reason is not None:
+    logger.warning(f"OpenAI client unavailable at import - {_startup_reason}")
 
 mood_analysis = [mood[0] for mood in settings.mood_analysis_weights]
 
@@ -88,20 +141,25 @@ async def get_analysis(content: str, mood_process: str = None) -> dict:
     """
     logger.info("Starting get_analysis (single call)")
 
-    if client is None:
-        raise RuntimeError(
-            "openai not installed or OPENAI_KEY not configured - note analysis disabled"
-        )
+    client = require_client("note analysis")
 
     moods_list = [m[0] for m in settings.mood_analysis_weights]
     model = settings.openai_model
 
     system_prompt = (
         "Analyze this journal entry. Respond ONLY with valid JSON in exactly this shape:\n"
-        '{"tags": ["word1"], "summary": "...", "mood_analysis": "...", "mood": "..."}\n\n'
+        '{"person_names": ["..."], "tags": ["word1"], "summary": "...", '
+        '"mood_analysis": "...", "mood": "..."}\n\n'
         "Rules:\n"
-        "- tags: 1-3 single lowercase words, no person names\n"
-        "- summary: 3-6 words, title-style, no person names\n"
+        "- person_names: FIRST list every person named or referred to by name in the "
+        "entry - first names, surnames, nicknames, and names from any language or "
+        "script (e.g. Siobhán, Nguyễn, 李伟, Олексій, Fatima), exactly as written. "
+        "Empty list if none.\n"
+        "- tags: 1-3 single lowercase words. Never a person's name of any culture "
+        "or language, and never anything from person_names\n"
+        "- summary: 3-6 words, title-style. Never contains a person's name of any "
+        "culture or language, and never anything from person_names; describe the "
+        'event or feeling instead ("Dinner With A Friend", not the friend\'s name)\n'
         f"- mood_analysis: one word from {moods_list}\n"
         '- mood: one of ["positive", "negative", "neutral"]\n'
     )
@@ -126,9 +184,27 @@ async def get_analysis(content: str, mood_process: str = None) -> dict:
         raw_tags = [
             "".join(re.findall(_LETTERS_ONLY_RE, str(t))) for t in raw_tags if t
         ]
-        tags_dict = tag_check({"tags": raw_tags})
 
-        summary = str(parsed.get("summary", "")).strip()
+        # Names the model found in this entry, plus known names capitalized
+        # mid-sentence in it - the model's list is the only thing that
+        # understands names across languages, the second set catches a
+        # model that under-reports. Both sides of every comparison go
+        # through _normalize(), so accents and case never let a name through.
+        if "person_names" not in parsed:
+            logger.warning(
+                "get_analysis: model omitted person_names; relying on the names "
+                "database alone for this entry"
+            )
+        blocked_names = name_tokens(parsed.get("person_names")) | (
+            capitalized_known_names(content)
+        )
+        tags_dict = tag_check({"tags": raw_tags}, extra_names=blocked_names)
+
+        raw_summary = str(parsed.get("summary", "")).strip()
+        summary = strip_names(raw_summary, blocked_names)
+        summary_lost_to_names = bool(raw_summary) and not summary
+        if summary != raw_summary:
+            logger.info("get_analysis: removed a person's name from the summary")
 
         mood_analysis_val = (parsed.get("mood_analysis") or "").strip().lower()
         if mood_analysis_val not in moods_list:
@@ -152,6 +228,10 @@ async def get_analysis(content: str, mood_process: str = None) -> dict:
                 "mood": mood_val
             },  # {"mood": "..."} — note_import uses analysis["mood"]["mood"]
         }
+        if summary_lost_to_names:
+            # A summary that was nothing but a name has no safe form; flag it so
+            # it lands on the AI Issues page for a retry, same as a parse failure.
+            data["_ai_fix"] = True
         logger.info("get_analysis completed (single call)")
         logger.debug(f"analysis: {data}")
         return data
@@ -179,10 +259,7 @@ async def get_blog_post_analysis(
     """
     logger.info("Starting get_blog_post_analysis (single call)")
 
-    if client is None:
-        raise RuntimeError(
-            "openai not installed or OPENAI_KEY not configured - blog post analysis disabled"
-        )
+    client = require_client("blog post analysis")
 
     model = settings.openai_model
 
@@ -243,6 +320,7 @@ async def get_tags(
         dict: A dictionary containing the keywords.
     """
     logger.info("Starting get_tags function")
+    client = require_client("tag generation")
 
     # Create the prompt for the OpenAI API
     prompt = f"For the following text create a python style list between 1 to {keyword_limit} 'single word' keywords to be stored as a python list and cannot be a persons name: {content}"
@@ -313,8 +391,8 @@ def name_check(name: str) -> bool:
     Returns:
         True if the text is recognized as a person's name, False otherwise.
     """
-    # Convert to lowercase for comparison
-    name_lower = name.lower().strip()
+    # Accent-insensitive: the database is plain ASCII, so "José" must find "Jose"
+    name_lower = _normalize(name)
 
     # Technical/common words that should never be filtered as names
     # These take precedence over the names database
@@ -383,13 +461,17 @@ def name_check(name: str) -> bool:
     return False
 
 
-def tag_check(tags: Dict[str, List[str]]) -> Dict[str, List[str]]:
+def tag_check(
+    tags: Dict[str, List[str]], extra_names: Optional[Set[str]] = None
+) -> Dict[str, List[str]]:
     """
     Filter out tags that are recognized as person names by name_check()'s
-    names-database + nameparser lookup (see name_check() above).
+    names-database + nameparser lookup (see name_check() above), plus any
+    names in `extra_names` (already normalized by name_tokens()).
 
     Args:
         tags: A dictionary with a key "tags" containing a list of strings to be checked.
+        extra_names: Normalized name tokens found in this specific entry.
 
     Returns:
         A dictionary with the key "tags" containing a filtered list of strings
@@ -397,9 +479,143 @@ def tag_check(tags: Dict[str, List[str]]) -> Dict[str, List[str]]:
     """
     tag_list = tags["tags"]
     logger.debug(tag_list)
-    filtered_tags = [tag for tag in tag_list if not name_check(tag)]
+    blocked = extra_names or set()
+    filtered_tags = [
+        tag for tag in tag_list if not name_check(tag) and not is_blocked(tag, blocked)
+    ]
     logger.debug(filtered_tags)
     return {"tags": filtered_tags}
+
+
+def _normalize(text: str) -> str:
+    """
+    Case- and accent-insensitive form used to compare names.
+
+    "José", "JOSE" and "jose" must all match, and so must the model's
+    spelling against the user's - a name the model transliterated or the
+    user typed without diacritics is still the same person.
+    """
+    decomposed = unicodedata.normalize("NFKD", text)
+    stripped = "".join(c for c in decomposed if not unicodedata.combining(c))
+    return stripped.casefold().strip()
+
+
+def _is_latin(word: str) -> bool:
+    return all(unicodedata.name(c, "").startswith("LATIN") for c in word)
+
+
+def is_blocked(word: str, blocked: Set[str]) -> bool:
+    """
+    True if `word` is one of the `blocked` name tokens.
+
+    Non-Latin scripts also match on a shared stem, because languages such as
+    Russian and Ukrainian inflect names by case: the model lists "Олексієм"
+    (instrumental) from the entry, then writes the nominative "Олексій" in a
+    tag, and an exact match would let that through. Latin script stays
+    exact-only - stem matching there would make "Grace" swallow "graceful".
+    """
+    normalized = _normalize(word)
+    if normalized in blocked:
+        return True
+    if _is_latin(normalized):
+        return False
+    for token in blocked:
+        shortest = min(len(normalized), len(token))
+        if (
+            shortest >= 4
+            and not _is_latin(token)
+            and abs(len(normalized) - len(token)) <= 3
+            and len(os.path.commonprefix([normalized, token])) >= shortest - 2
+        ):
+            return True
+    return False
+
+
+def name_tokens(names_found: object) -> Set[str]:
+    """
+    Turns the model's `person_names` list into a set of normalized word tokens.
+
+    Names are split into words ("Wei Chen", "Wei-Ming", "María de la Cruz")
+    because a summary or tag will usually reference only part of a name, and
+    the first name alone is as identifying as the whole. Single letters are
+    dropped: they're initials, and blocking "a" would gut every summary.
+    """
+    if not isinstance(names_found, list):
+        return set()
+    tokens = set()
+    for entry in names_found:
+        for word in re.findall(_LETTERS_ONLY_RE, str(entry)):
+            normalized = _normalize(word)
+            if len(normalized) > 1:
+                tokens.add(normalized)
+    return tokens
+
+
+def capitalized_known_names(content: str) -> Set[str]:
+    """
+    Names from the database that appear capitalized mid-sentence in `content`.
+
+    A deterministic backstop for when the model under-reports `person_names`.
+    Position matters because the database contains ordinary words that are
+    also names (Hope, Grace, Will, Mark): "Hope is a good thing" is not a
+    person, "I had lunch with Hope" is. Only Latin-script text has this
+    capitalization signal; other scripts rely on the model's list alone.
+    """
+    found = set()
+    at_sentence_start = True
+    for match in re.finditer(rf"{_LETTERS_ONLY_RE}|[.!?\n]", content):
+        token = match.group()
+        if token in ".!?\n":
+            at_sentence_start = True
+            continue
+        if (
+            not at_sentence_start
+            and len(token) > 1
+            and token[0].isupper()
+            and name_check(token)
+        ):
+            found.add(_normalize(token))
+        at_sentence_start = False
+    return found
+
+
+# Words left stranded at the edge of a summary once a name is removed
+# ("Dinner With <name>" -> "Dinner With"), which read as broken titles.
+_DANGLING_EDGE_WORDS = {
+    "with", "and", "of", "for", "to", "in", "on", "at", "by", "from", "about",
+}  # fmt: skip
+
+
+def strip_names(text: str, blocked: Set[str]) -> str:
+    """
+    Removes every word in `blocked` from `text`, including possessives
+    ("Wei's" goes entirely), then tidies the gaps the removal leaves.
+    """
+    if not blocked:
+        return text
+
+    original = text
+
+    # Chinese/Japanese/Korean text has no spaces between words, so a name is
+    # not its own word-token there and can only be found as a substring.
+    for token in blocked:
+        if any("぀" <= c <= "鿿" or "가" <= c <= "힯" for c in token):
+            text = text.replace(token, " ")
+
+    def _drop(match: "re.Match[str]") -> str:
+        return "" if is_blocked(match.group(1), blocked) else match.group(0)
+
+    cleaned = re.sub(rf"({_LETTERS_ONLY_RE})(?:['’]s)?", _drop, text)
+    if cleaned == original:
+        return original
+
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -–—,:;")
+    words = cleaned.split(" ")
+    while words and _normalize(words[-1]) in _DANGLING_EDGE_WORDS:
+        words.pop()
+    while words and _normalize(words[0]) in _DANGLING_EDGE_WORDS:
+        words.pop(0)
+    return " ".join(words)
 
 
 async def get_summary(
@@ -417,6 +633,7 @@ async def get_summary(
         dict: A dictionary containing the summary.
     """
     logger.info("Starting get_summary function")
+    client = require_client("summary generation")
 
     # Create the prompt for the OpenAI API
     prompt = f"Create a very brief {sentence_length}-sentence title-style summary. Use only 3-6 words maximum. Focus on the main topic only, avoid detailed explanations. No person names allowed."
@@ -457,6 +674,7 @@ async def get_mood_analysis(content: str, temperature: float = temperature) -> d
         dict: A dictionary containing the mood analysis.
     """
     logger.info("Starting get_mood_analysis function")
+    client = require_client("mood analysis")
     moods = [mood[0] for mood in settings.mood_analysis_weights]
     # Create the prompt for the OpenAI API
     prompt = f"For the following text provide a single expressive word response that expresses the general mood of the content from these options {moods}. It will be stored in a python variable with a max character length of 25."
@@ -499,6 +717,7 @@ async def get_mood(content: str, temperature: float = temperature) -> dict:
     # Define the possible moods
     moods: list = ["positive", "negative", "neutral"]
     logger.info("Starting get_mood function")
+    client = require_client("mood detection")
 
     # Create the prompt for the OpenAI API
     prompt = f"Please determine the mood of the following text using only one of these moods {moods} for the content. It will be stored in a python variable with a max character length of 25."
@@ -559,10 +778,7 @@ async def get_url_summary(
         logger.info("Detected YouTube URL, using YouTube-specific handler")
         return await get_youtube_summary(url, sentence_length)
 
-    if client is None:
-        raise RuntimeError(
-            "openai not installed or OPENAI_KEY not configured - URL summary generation disabled"
-        )
+    client = require_client("URL summary generation")
 
     # Create the prompt for the OpenAI API
     prompt = f"Create a very brief {sentence_length}-word title for this URL. Use only 3-6 words maximum. Focus on the main topic only."
@@ -614,10 +830,7 @@ async def get_url_title(
         logger.info("Detected YouTube URL, using YouTube-specific handler")
         return await get_youtube_title(url)
 
-    if client is None:
-        raise RuntimeError(
-            "openai not installed or OPENAI_KEY not configured - URL title generation disabled"
-        )
+    client = require_client("URL title generation")
 
     # Create the prompt for the OpenAI API
     # prompt = "Create a new title from the websites full title html tag and format as 'Full Title from Website Name'. If not possible provide a title that is a simple single sentence in length."

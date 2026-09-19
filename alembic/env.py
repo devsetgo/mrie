@@ -2,11 +2,10 @@
 import asyncio
 from logging.config import fileConfig
 
+from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
-
-from alembic import context
 
 # The app builds its own async engine (src/db_init.py -> src/resources.py)
 # around a live module-level singleton (async_db) the running app owns.

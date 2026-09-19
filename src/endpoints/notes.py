@@ -78,15 +78,13 @@ from sqlalchemy import (
 
 from ..db_tables import Notes, compute_note_derived_fields
 from ..functions import ai, date_functions, note_import, notes_metrics
-from ..functions.pagination import build_page_url
-from ..functions.notifications import create_notification
-from ..functions.db_guards import (
-    is_db_error,
-    safe_list as _safe_list,
-    safe_record as _safe_record,
-)
+from ..functions.db_guards import is_db_error
+from ..functions.db_guards import safe_list as _safe_list
+from ..functions.db_guards import safe_record as _safe_record
 from ..functions.encrypt import encrypt_text
 from ..functions.login_required import check_login
+from ..functions.notifications import create_notification
+from ..functions.pagination import build_page_url
 from ..resources import db_ops, templates
 from ..settings import settings
 
@@ -441,6 +439,15 @@ async def update_note(
     )
     updated_data.update(derived)
 
+    # Re-run the AI only when the note body actually changed, and only when
+    # the user did not hand-edit the AI-owned fields in the same submit. The
+    # edit form exposes summary/tags/mood_analysis precisely so they can be
+    # corrected by hand, so re-analyzing would immediately overwrite the
+    # correction the user just made.
+    ai_owned_fields = {"summary", "tags", "mood_analysis"}
+    reanalyze = "note" in updated_data and not (ai_owned_fields & updated_data.keys())
+    new_note_content = updated_data.get("note")
+
     # Notes.note/summary are Python properties that encrypt on assignment
     # (see db_tables.py) - only via ORM-instance construction, not a
     # Core-level update().values(), which only recognizes the real mapped
@@ -460,6 +467,14 @@ async def update_note(
         logger.error(f"Failed to update note with ID: {note_id}")
         return RedirectResponse(url="/error/500", status_code=303)
     logger.info(f"Updated note with ID: {note_id}")
+    if reanalyze:
+        background_tasks.add_task(
+            process_ai_analysis_background,
+            note_id=note_id,
+            content=new_note_content,
+            user_id=user_identifier,
+        )
+        logger.info(f"Queued background AI re-analysis for edited note {note_id}")
     background_tasks.add_task(
         notes_metrics.update_notes_metrics, user_id=user_identifier
     )

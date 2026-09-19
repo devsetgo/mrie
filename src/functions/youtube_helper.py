@@ -27,18 +27,7 @@ from loguru import logger
 
 from src.settings import settings
 
-from .ai import get_model_temperature, strip_quotation_marks
-
-try:
-    from openai import AsyncOpenAI
-except ImportError:
-    AsyncOpenAI = None
-
-client = (
-    AsyncOpenAI(api_key=settings.openai_key.get_secret_value())
-    if AsyncOpenAI and settings.openai_key
-    else None
-)
+from .ai import get_model_temperature, require_client, strip_quotation_marks
 
 temperature = 0.2
 DEFAULT_YOUTUBE_TITLE = "YouTube Video"
@@ -174,6 +163,7 @@ async def get_youtube_summary(url: str, sentence_length: int = 2) -> Dict[str, s
     prompt = f"Please create a {sentence_length} sentence summary for a YouTube video with the title '{metadata['title']}' by {metadata['author_name']}. Create an informative description about what this video likely contains based on the title and creator."
 
     try:
+        client = require_client("YouTube summary generation")
         chat_completion = await client.chat.completions.create(
             model=settings.openai_model,
             messages=[

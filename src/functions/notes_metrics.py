@@ -23,11 +23,9 @@ from ..db_tables import (
     NoteMetricsScalars,
     Notes,
 )
-from ..functions.db_guards import (
-    is_db_error as _is_db_error,
-    safe_list as _safe_list,
-    safe_record as _safe_record,
-)
+from ..functions.db_guards import is_db_error as _is_db_error
+from ..functions.db_guards import safe_list as _safe_list
+from ..functions.db_guards import safe_record as _safe_record
 from ..resources import db_ops
 from ..settings import settings
 

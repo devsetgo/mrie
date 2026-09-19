@@ -45,7 +45,7 @@ cache:  # Clean pycache
 	find . -name '__pycache__' -exec rm -rf {} +
 	find . -name '.pytest_cache' -exec rm -rf {} +
 
-cleanup: autoflake ruff isort  # Run isort, ruff, and autoflake
+cleanup: ruff  # Lint-fix, sort imports and format (ruff replaces autoflake, isort and black)
 
 help:  # Display available targets
 	@awk 'BEGIN {FS = ":  # "} /^[a-zA-Z_-]+:  # / {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -63,9 +63,9 @@ isort:  # Sort imports using isort
 kill: ## Kill the server
 	kill -9 $(lsof -t -i:5000)
 
-ruff: ## Format Python code with Ruff
-	ruff check --fix --exit-non-zero-on-fix --show-fixes $(SERVICE_PATH)
-	ruff check --fix --exit-non-zero-on-fix --show-fixes $(TESTS_PATH)
+ruff: ## Fix lint issues, sort imports and format code with Ruff
+	ruff check --fix --show-fixes $(SERVICE_PATH) $(TESTS_PATH)
+	ruff format $(SERVICE_PATH) $(TESTS_PATH)
 
 run-dev:  # Run the FastAPI application in development mode with hot-reloading
 	uvicorn ${SERVICE_PATH}.main:app --port ${PORT} --reload --log-level ${LOG_LEVEL}
@@ -82,7 +82,7 @@ reset-dev-workers-db:  # Delete the SQLite file run-dev-workers created, for a c
 
 test:  # Run tests and generate coverage report
 	pre-commit run -a
-	PYTHONPATH=. pytest
+	PYTHONPATH=. pytest -n auto --maxprocesses=8
 	sed -i 's|<source>/workspaces/mrie</source>|<source>/github/workspace/mrie</source>|' /workspaces/mrie/coverage.xml
 	genbadge coverage -i /workspaces/mrie/coverage.xml
 

@@ -7,7 +7,6 @@ Functions:
 
 Modules:
     csv: For reading from and writing to CSV files.
-    itertools: Provides access to the iterator functions.
     datetime: For working with dates and times.
     dateutil.parser: For parsing dates and times from strings.
     dateutil.tz: For timezone definitions.
@@ -31,7 +30,6 @@ Author:
 import ast
 import asyncio
 import csv
-import itertools
 import uuid
 from datetime import datetime, timezone
 
@@ -99,6 +97,17 @@ def parse_tags_field(raw) -> list:
     return [t.strip() for t in raw.split(",") if t.strip()]
 
 
+def is_header_row(row: dict, headers) -> bool:
+    """True if a data row just repeats the header line (every cell equals its
+    own column name). Happens when exports get concatenated or a header is
+    emitted per page - DictReader only consumes the first line as the header,
+    so any later copy would otherwise be imported as a real note.
+    """
+    return bool(headers) and all(
+        (row.get(h) or "").strip().lower() == h.strip().lower() for h in headers
+    )
+
+
 async def read_notes_from_file(csv_file, user_id: str):
     """
     Reads notes from a CSV file and stores them in the database.
@@ -121,9 +130,12 @@ async def read_notes_from_file(csv_file, user_id: str):
         logger.error(validation_result)
         return {"error": csv_file}
 
-    # Create a copy of the CSV file and count the number of notes
-    csv_file, csv_file_copy = itertools.tee(csv_file)
-    note_count = sum(1 for _ in csv_file_copy)
+    headers = csv_file.fieldnames
+    all_rows = list(csv_file)
+    csv_file = [row for row in all_rows if not is_header_row(row, headers)]
+    note_count = len(csv_file)
+    if skipped := len(all_rows) - note_count:
+        logger.warning(f"Skipped {skipped} repeated header row(s) in CSV")
     logger.info(f"Number of notes to process: {note_count} (format={csv_format})")
 
     if csv_format == "export":

@@ -14,7 +14,8 @@ from sqlalchemy import Select, update
 from ..db_tables import WebLinks, compute_weblink_ai_fix
 from ..functions import ai
 from ..functions._optional_deps import tqdm, unsync
-from ..functions.db_guards import is_db_error, safe_record as _safe_record
+from ..functions.db_guards import is_db_error
+from ..functions.db_guards import safe_record as _safe_record
 from ..resources import db_ops
 
 try:

@@ -29,11 +29,8 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import (
-    class_mapper,
-    declarative_base as _declarative_base,
-    relationship,
-)
+from sqlalchemy.orm import class_mapper, relationship
+from sqlalchemy.orm import declarative_base as _declarative_base
 
 from .db_init import async_db
 from .functions.encrypt import (
