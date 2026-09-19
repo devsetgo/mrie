@@ -54,7 +54,7 @@ reportPrivateUsage = true
 target-version = [ "py314",]
 
 [tool.ruff]
-line-length = 100
+line-length = 88
 indent-width = 4
 unsafe-fixes = true
 target-version = "py314"
@@ -100,12 +100,18 @@ variable = "__version__"
 version_standard = "default"
 
 [tool.ruff.lint]
-select = [ "C", "F", "E", "W", "B",]
-ignore = [ "C901", "E501", "B017", "B904", "B008", "E712", "I",]
+select = [ "C", "F", "E", "W", "B", "I",]
+ignore = [ "C901", "E501", "B017", "B904", "B008", "E712",]
+
+[tool.ruff.lint.isort]
+# `src` is the app package (imported as `from src.x import ...`), but ruff's
+# `src = [...]` above lists directories to look *inside*, so without this it
+# would classify `src.*` as third-party and sort it in with pytest/fastapi.
+known-first-party = [ "src",]
 
 [tool.ruff.format]
 indent-style = "space"
-quote-style = "single"
+quote-style = "double"
 
 [tool.coverage.run]
 source = [ "src",]

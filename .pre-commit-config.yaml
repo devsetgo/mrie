@@ -1,15 +1,22 @@
 repos:
--   repo: https://github.com/psf/black
-    # Must stay in sync with requirements/dev.txt's black pin - 23.1.0 (the
-    # long-standing default) still references `ast.Str`, which Python 3.12+
-    # removed from the `ast` module entirely. That only ever failed in CI
-    # (a fresh hook env built against language_version: python3.14 below);
-    # locally it was masked by an already-built ~/.cache/pre-commit venv
-    # from before language_version was pinned to 3.14.
-    rev: 26.5.1
+-   repo: https://github.com/astral-sh/ruff-pre-commit
+    # Must stay in sync with requirements/dev.txt's ruff pin, or `make ruff`
+    # and this hook will disagree about what "formatted" means.
+    #
+    # ruff replaces black (formatting), isort (the "I" lint rules) and
+    # autoflake (unused imports, rule F401) - configured in pyproject.toml
+    # under [tool.ruff]. Order matters: ruff-check --fix runs first so that
+    # ruff-format sees the final import layout.
+    rev: v0.16.6
     hooks:
-    - id: black
-      language_version: python3.14
+      # --no-unsafe-fixes overrides `unsafe-fixes = true` in pyproject.toml
+      # for this hook only: an auto-run commit hook shouldn't silently rewrite
+      # logic (e.g. dropping an "unused" assignment that has a side effect).
+      # Anything it can't fix safely is still reported, and `make ruff` applies
+      # the unsafe ones on request.
+      - id: ruff-check
+        args: [--fix, --no-unsafe-fixes]
+      - id: ruff-format
 -   repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.4.0
     hooks:
@@ -19,13 +26,4 @@ repos:
       # - id: pretty-format-json
       - id: requirements-txt-fixer
 
-# -   repo: git://github.com/doublify/pre-commit-isort
-#     sha: master
-#     hooks:
-#     -   id: isort
-
       # - id: flake8
-# -   repo: https://github.com/pre-commit/mirrors-isort
-#     rev: 'v4.3.21'  # Use the revision sha / tag you want to point at
-#     hooks:
-#     -   id: isort
