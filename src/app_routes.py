@@ -190,5 +190,5 @@ def create_routes(app: FastAPI) -> NoReturn:
         include_in_schema=True,
     )
     # Log the time it took to create the routes
-    logger.info(f"Routes created in {time.time()-t0:.4f} seconds")
+    logger.info(f"Routes created in {time.time() - t0:.4f} seconds")
     return None

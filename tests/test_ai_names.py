@@ -181,8 +181,6 @@ def test_summary_that_was_only_a_name_is_flagged_for_retry(monkeypatch):
 
 
 def test_malformed_person_names_does_not_break_analysis(monkeypatch):
-    result = _analyze(
-        monkeypatch, "A quiet day.", _reply(person_names="not a list")
-    )
+    result = _analyze(monkeypatch, "A quiet day.", _reply(person_names="not a list"))
     assert result["summary"] == "Productive Day At Work"
     assert result["tags"]["tags"] == ["work"]

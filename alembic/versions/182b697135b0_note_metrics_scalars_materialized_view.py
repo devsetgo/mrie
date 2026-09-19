@@ -21,8 +21,8 @@ this migration doesn't need a dialect guard.
 
 from typing import Sequence, Union
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "182b697135b0"
