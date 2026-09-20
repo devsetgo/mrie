@@ -279,11 +279,11 @@ async def process_note(note_id: str, semaphore: asyncio.Semaphore):
             query = Select(Notes).where(Notes.pkid == note_id)
             note = _safe_record(await db_ops.read_one_record(query=query))
             note = note.to_dict()
-            logger.debug(f"AI Processing of note: {note}")
+            logger.debug(f"AI Processing of note: {note_id}")
 
             # Single AI call — get_analysis now always returns mood too
             analysis = await ai.get_analysis(content=note["note"])
-            logger.info(f"Received analysis from AI: {analysis}")
+            logger.info(f"Received analysis from AI for note {note_id}")
 
             # Honour valid user-selected mood; use AI-derived mood only if needed
             stored_mood = note.get("mood", "")

@@ -25,18 +25,11 @@ DEV_REQUIREMENTS_PATH = requirements/dev.txt
 TIMESTAMP := $(shell date +'%y-%m-%d-%H%M')
 LOG_LEVEL := $(shell grep LOGGING_LEVEL .env | cut -d '=' -f2 | tr '[:upper:]' '[:lower:]')
 
-.PHONY: alembic-downgrade alembic-migrate alembic-rev autoflake black bump cache cleanup help install install-dev isort kill ruff run-dev run-dev-workers run-prd reset-dev-workers-db test
+.PHONY: alembic-downgrade alembic-migrate alembic-rev bump cache cleanup help install install-dev kill ruff run-dev run-dev-workers run-prd reset-dev-workers-db test
 
 # Necessary to develop, lint, test, and run the app day to day.
 # Everything below is commented out while evaluating a possible move to
 # Robyn / granian - uncomment as needed for local feature work.
-
-autoflake:  # Remove unused imports and variables
-	autoflake --in-place --remove-all-unused-imports -r $(SERVICE_PATH)
-
-black:  # Format code using black
-	black $(SERVICE_PATH)
-	black $(TESTS_PATH)
 
 bump:  # Bump the version number
 	bumpcalver --build
@@ -55,10 +48,6 @@ install:  # Install required dependencies
 
 install-dev:  # Install development dependencies
 	$(PIP) install -r $(DEV_REQUIREMENTS_PATH)
-
-isort:  # Sort imports using isort
-	isort $(SERVICE_PATH)
-	isort $(TESTS_PATH)
 
 kill: ## Kill the server
 	kill -9 $(lsof -t -i:5000)

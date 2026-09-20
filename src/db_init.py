@@ -10,6 +10,7 @@ and Postgres.
 
 from dsg_lib.async_database_functions import async_database, database_config
 from loguru import logger
+from sqlalchemy.engine import make_url
 
 from .settings import settings
 
@@ -31,7 +32,10 @@ else:  # no pragma: no cover
     db_port = settings.db_port
     # postgresql://username:password@localhost:5432/mydatabase
     db_uri: str = f"{settings.db_driver.value}://{db_username}:{db_password}@{settings.db_host}:{settings.db_port}/{db_name}"
-logger.debug(f"{db_uri}")
+# db_uri embeds the Postgres password, so anything that logs it must go
+# through this masked form first.
+safe_db_uri = make_url(db_uri).render_as_string(hide_password=True)
+logger.debug(f"{safe_db_uri}")
 
 
 # Mapping of configuration options to database drivers that support them
@@ -64,7 +68,7 @@ for option in [
             config[option] = value
             break
 
-logger.debug(f"database config: {config}")
+logger.debug(f"database config: {config | {'database_uri': safe_db_uri}}")
 logger.info("setting up database")
 db_config = database_config.DBConfig(config)
 async_db = async_database.AsyncDatabase(db_config)

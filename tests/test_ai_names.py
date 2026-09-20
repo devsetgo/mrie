@@ -184,3 +184,52 @@ def test_malformed_person_names_does_not_break_analysis(monkeypatch):
     result = _analyze(monkeypatch, "A quiet day.", _reply(person_names="not a list"))
     assert result["summary"] == "Productive Day At Work"
     assert result["tags"]["tags"] == ["work"]
+
+
+# ---- unspaced scripts (Japanese, Chinese) and Korean ----
+
+
+def test_japanese_name_with_voiced_kana_is_cut_out_not_the_whole_summary():
+    # NFKD turns "だ" into "た" + a combining mark, so the normalized token
+    # "たいすけ" never matched the original text; the stem rule then read the
+    # whole unspaced clause as one word and deleted it, leaving "".
+    result = ai.strip_names("だいすけと夕食", ai.name_tokens(["だいすけ"]))
+
+    assert "だいすけ" not in result
+    assert "夕食" in result
+
+
+def test_kana_name_matches_precomposed_and_decomposed_text():
+    import unicodedata
+
+    decomposed = unicodedata.normalize("NFD", "だいすけと夕食")
+    assert decomposed != "だいすけと夕食"  # really is a different spelling
+
+    for text in ("だいすけと夕食", decomposed):
+        result = ai.strip_names(text, ai.name_tokens(["だいすけ"]))
+        assert "夕食" in result
+        assert "すけ" not in result
+
+
+def test_remove_normalized_cuts_the_original_characters():
+    assert ai._remove_normalized("だいすけと夕食", "たいすけ") == " と夕食"
+    assert ai._remove_normalized("no match here", "たいすけ") == "no match here"
+
+
+def test_han_and_kana_names_only_match_exactly_never_by_stem():
+    assert ai.is_blocked("欧阳娜娜", {"欧阳娜娜"})
+    assert not ai.is_blocked("欧阳娜娜的晚餐", {"欧阳娜娜"})
+    assert not ai.is_blocked("だいすけの夕食", {"たいすけ"})
+
+
+def test_korean_name_with_an_attached_particle_is_still_removed_whole():
+    # Hangul stays word-level: cutting "민수" out of "민수와" would strand
+    # the particle.
+    assert ai.strip_names("민수와 저녁 식사", ai.name_tokens(["민수"])) == "저녁 식사"
+
+
+def test_chinese_name_is_still_cut_out_of_an_unspaced_run():
+    result = ai.strip_names("和李伟吃饭", ai.name_tokens(["李伟"]))
+
+    assert "李伟" not in result
+    assert "吃饭" in result

@@ -2,17 +2,17 @@
 """
 This module contains functions for interacting with the OpenAI API.
 
-It uses the AsyncOpenAI client to make asynchronous requests to the API. The module includes functions for getting tags, summary, mood analysis, and mood from a given content.
+It uses the AsyncOpenAI client to make asynchronous requests to the API. The module analyzes a journal entry in a single call and generates titles and summaries for bookmarked links, and it filters person names out of the results.
 
 Functions:
-    get_analysis(content: str, mood_process: str = None) -> dict: Gets the tags, summary, mood analysis, and mood from the given content.
+    get_analysis(content: str, mood_process: str = None) -> dict: Gets the tags, summary, mood analysis, and mood from the given content in one API call.
+    get_url_summary / get_url_title: One-sentence summary and a title for a bookmarked URL.
 
 Author:
     Mike Ryan
     MIT Licensed
 """
 
-import ast
 import json
 import os
 import re
@@ -175,7 +175,10 @@ async def get_analysis(content: str, mood_process: str = None) -> dict:
             response_format={"type": "json_object"},
         )
         raw = chat_completion.choices[0].message.content
-        logger.debug(f"get_analysis raw response: {raw}")
+        # Sizes only, here and below: the model's output restates the user's
+        # private journal entry (summary, person names), which is encrypted at
+        # rest and shouldn't be written to the log in the clear.
+        logger.debug(f"get_analysis raw response: {len(raw or '')} characters")
         parsed = json.loads(raw)
 
         raw_tags = parsed.get("tags", [])
@@ -233,7 +236,11 @@ async def get_analysis(content: str, mood_process: str = None) -> dict:
             # it lands on the AI Issues page for a retry, same as a parse failure.
             data["_ai_fix"] = True
         logger.info("get_analysis completed (single call)")
-        logger.debug(f"analysis: {data}")
+        logger.debug(
+            f"analysis: mood_analysis={data['mood_analysis']}, "
+            f"mood={data['mood']['mood']}, tags={len(tags_dict['tags'])}, "
+            f"summary={len(summary)} characters"
+        )
         return data
 
     except (json.JSONDecodeError, KeyError, AttributeError) as exc:
@@ -245,134 +252,6 @@ async def get_analysis(content: str, mood_process: str = None) -> dict:
             "mood": {"mood": "neutral"},
             "_ai_fix": True,
         }
-
-
-async def get_blog_post_analysis(
-    content: str, sentence_length: int = 3, keyword_limit: int = 3
-) -> dict:
-    """
-    Gets tags and summary for a blog post in a single API call.
-
-    Returns:
-        dict: {"tags": [...], "summary": "..."} — tags is a flat list,
-        matching blog_posts.py's direct use of analysis["tags"].
-    """
-    logger.info("Starting get_blog_post_analysis (single call)")
-
-    client = require_client("blog post analysis")
-
-    model = settings.openai_model
-
-    system_prompt = (
-        f"Analyze this blog post. Respond ONLY with valid JSON in exactly this shape:\n"
-        f'{{"tags": ["word1"], "summary": "..."}}\n\n'
-        f"Rules:\n"
-        f"- tags: 1-{keyword_limit} single lowercase words, no person names\n"
-        f"- summary: {sentence_length}-sentence summary, no person names\n"
-    )
-
-    try:
-        chat_completion = await client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": content},
-            ],
-            temperature=get_model_temperature(model),
-            response_format={"type": "json_object"},
-        )
-        raw = chat_completion.choices[0].message.content
-        logger.debug(f"get_blog_post_analysis raw: {raw}")
-        parsed = json.loads(raw)
-
-        raw_tags = parsed.get("tags", [])
-        if not isinstance(raw_tags, list):
-            raw_tags = []
-        raw_tags = [
-            "".join(re.findall(_LETTERS_ONLY_RE, str(t))) for t in raw_tags if t
-        ]
-        tags_dict = tag_check({"tags": raw_tags})
-
-        return {
-            "tags": tags_dict[
-                "tags"
-            ],  # flat list — blog_posts.py uses analysis["tags"] directly
-            "summary": str(parsed.get("summary", "")).strip(),
-        }
-
-    except (json.JSONDecodeError, KeyError, AttributeError) as exc:
-        logger.error(f"get_blog_post_analysis failure: {exc}")
-        return {"tags": [], "summary": ""}
-
-
-async def get_tags(
-    content: str, temperature: float = temperature, keyword_limit: int = 3
-) -> dict:
-    """
-    Gets a list of keywords from the given content.
-
-    Args:
-        content (str): The content to analyze.
-        temperature (float, optional): The temperature to use for the OpenAI API. Defaults to temperature.
-        keyword_limit (int, optional): The maximum number of keywords to return. Defaults to 3.
-
-    Returns:
-        dict: A dictionary containing the keywords.
-    """
-    logger.info("Starting get_tags function")
-    client = require_client("tag generation")
-
-    # Create the prompt for the OpenAI API
-    prompt = f"For the following text create a python style list between 1 to {keyword_limit} 'single word' keywords to be stored as a python list and cannot be a persons name: {content}"
-
-    # Send the prompt to the OpenAI API
-    chat_completion = await client.chat.completions.create(
-        model=settings.openai_model,
-        messages=[
-            {
-                "role": "system",
-                "content": prompt,
-            },
-            {"role": "user", "content": content},
-        ],
-        temperature=get_model_temperature(settings.openai_model, temperature),
-    )
-
-    # Extract the content from the response
-    response_content = chat_completion.choices[0].message.content
-    logger.debug(f"tag response: {response_content}")
-
-    # Use a regular expression to extract a list from the response
-    match = re.search(r"\[.*\]", response_content)
-    if match:
-        response_content = match.group(0)
-
-    else:
-        logger.error(
-            f"Error: Unable to extract a list from response_content: {response_content}"
-        )
-        response_content = "[]"
-
-    logger.debug(response_content)
-    # Convert string representation of list to list
-    try:
-        response_content = ast.literal_eval(response_content)
-    except SyntaxError:
-        logger.error(f"Error: Unable to parse response_content: {response_content}")
-        response_content = []
-
-    # Remove any numbers or symbols from the items in the list
-    response_content = [
-        "".join(re.findall(_LETTERS_ONLY_RE, item)) for item in response_content
-    ]
-
-    # Store the keywords in a dictionary
-    logger.debug(f"tag content {response_content}")
-    response_dict = {"tags": response_content}
-    logger.info("Finished get_tags function")
-    resp = tag_check(response_dict)
-    logger.debug(response_dict)
-    return resp
 
 
 # Convert names list to set for fast lookups (case insensitive)
@@ -501,7 +380,59 @@ def _normalize(text: str) -> str:
 
 
 def _is_latin(word: str) -> bool:
+    """
+    True if every character is a Latin letter.
+
+    Digits, hyphens and spaces make it False ("well-being" is "not Latin"),
+    and an empty string is vacuously True. is_blocked() relies on both: the
+    empty string short-circuits to "not blocked", and a non-letter sends the
+    word into the stem loop, where it harmlessly matches nothing.
+    """
     return all(unicodedata.name(c, "").startswith("LATIN") for c in word)
+
+
+# Scripts written without spaces between words, so a name there can only be
+# found as a substring of a longer run of text. Hangul is deliberately absent:
+# Korean is spaced, with particles attached to the word ("민수가"), so it is
+# matched word-by-word like any other spaced script.
+_UNSPACED_SCRIPT_RANGES = (
+    ("\u3005", "\u3005"),  # 々, the iteration mark used in names like 佐々木
+    ("\u3040", "\u30ff"),  # Hiragana and Katakana
+    ("\u3400", "\u4dbf"),  # CJK Unified Ideographs Extension A
+    ("\u4e00", "\u9fff"),  # CJK Unified Ideographs
+)
+
+
+def _has_unspaced_script(text: str) -> bool:
+    return any(lo <= c <= hi for c in text for lo, hi in _UNSPACED_SCRIPT_RANGES)
+
+
+def _remove_normalized(text: str, token: str) -> str:
+    """
+    Replaces every occurrence of `token` in `text` with a space, matching
+    accent- and case-insensitively but cutting the *original* characters.
+
+    `token` is already in _normalize() form, which rewrites some characters
+    (a voiced kana such as "だ" becomes "た" once its mark is stripped), so
+    searching the raw text for it would miss them. Instead the text is
+    normalized one character at a time, keeping each result's offset back
+    into the original, and the matches are mapped back through that.
+    """
+    normalized, offsets = [], []
+    for index, char in enumerate(text):
+        # Keep whitespace as one space: _normalize() strips, which would delete
+        # it and let a token match across a word boundary.
+        for piece in " " if char.isspace() else _normalize(char):
+            normalized.append(piece)
+            offsets.append(index)
+
+    spans = [
+        (offsets[m.start()], offsets[m.end() - 1] + 1)
+        for m in re.finditer(re.escape(token), "".join(normalized))
+    ]
+    for start, end in reversed(spans):
+        text = f"{text[:start]} {text[end:]}"
+    return text
 
 
 def is_blocked(word: str, blocked: Set[str]) -> bool:
@@ -513,6 +444,9 @@ def is_blocked(word: str, blocked: Set[str]) -> bool:
     (instrumental) from the entry, then writes the nominative "Олексій" in a
     tag, and an exact match would let that through. Latin script stays
     exact-only - stem matching there would make "Grace" swallow "graceful".
+    So do Han and kana: they aren't case-inflected, and with no spaces a
+    "word" there is a whole clause, so a shared prefix would delete all of it
+    (strip_names() finds names in those scripts as substrings instead).
     """
     normalized = _normalize(word)
     if normalized in blocked:
@@ -524,6 +458,7 @@ def is_blocked(word: str, blocked: Set[str]) -> bool:
         if (
             shortest >= 4
             and not _is_latin(token)
+            and not _has_unspaced_script(token)
             and abs(len(normalized) - len(token)) <= 3
             and len(os.path.commonprefix([normalized, token])) >= shortest - 2
         ):
@@ -596,16 +531,20 @@ def strip_names(text: str, blocked: Set[str]) -> str:
 
     original = text
 
-    # Chinese/Japanese/Korean text has no spaces between words, so a name is
-    # not its own word-token there and can only be found as a substring.
+    # Han and kana have no spaces between words, so a name there can only be
+    # found as a substring (Korean is spaced and is handled word-by-word
+    # below). This pass runs first: once the name is cut out, the word pass
+    # can no longer mistake a whole clause for it.
     for token in blocked:
-        if any("぀" <= c <= "鿿" or "가" <= c <= "힯" for c in token):
-            text = text.replace(token, " ")
+        if _has_unspaced_script(token):
+            text = _remove_normalized(text, token)
 
     def _drop(match: "re.Match[str]") -> str:
         return "" if is_blocked(match.group(1), blocked) else match.group(0)
 
     cleaned = re.sub(rf"({_LETTERS_ONLY_RE})(?:['’]s)?", _drop, text)
+    # Compare against `original`, not `text`: a change made only by the
+    # substring pass above must still go through the tidy-up below.
     if cleaned == original:
         return original
 
@@ -616,143 +555,6 @@ def strip_names(text: str, blocked: Set[str]) -> str:
     while words and _normalize(words[0]) in _DANGLING_EDGE_WORDS:
         words.pop(0)
     return " ".join(words)
-
-
-async def get_summary(
-    content: str, temperature: float = temperature, sentence_length: int = 1
-) -> dict:
-    """
-    Gets a summary of the given content.
-
-    Args:
-        content (str): The content to summarize.
-        temperature (float, optional): The temperature to use for the OpenAI API. Defaults to temperature.
-        sentence_length (int, optional): The length of the summary in sentences. Defaults to 1.
-
-    Returns:
-        dict: A dictionary containing the summary.
-    """
-    logger.info("Starting get_summary function")
-    client = require_client("summary generation")
-
-    # Create the prompt for the OpenAI API
-    prompt = f"Create a very brief {sentence_length}-sentence title-style summary. Use only 3-6 words maximum. Focus on the main topic only, avoid detailed explanations. No person names allowed."
-
-    # Send the prompt to the OpenAI API
-    chat_completion = await client.chat.completions.create(
-        model=settings.openai_model,
-        messages=[
-            {
-                "role": "system",
-                "content": prompt,
-            },
-            {"role": "user", "content": content},
-        ],
-        temperature=get_model_temperature(settings.openai_model, temperature),
-    )
-
-    # Extract the content from the response
-    response_content = chat_completion.choices[0].message.content
-    logger.debug(f"summary content: {response_content}")
-
-    # Store the summary in a dictionary
-    response_dict = response_content
-    logger.info("Finished get_summary function")
-
-    return response_dict
-
-
-async def get_mood_analysis(content: str, temperature: float = temperature) -> dict:
-    """
-    Analyzes the mood of the given content.
-
-    Args:
-        content (str): The content to analyze.
-        temperature (float, optional): The temperature to use for the OpenAI API. Defaults to temperature.
-
-    Returns:
-        dict: A dictionary containing the mood analysis.
-    """
-    logger.info("Starting get_mood_analysis function")
-    client = require_client("mood analysis")
-    moods = [mood[0] for mood in settings.mood_analysis_weights]
-    # Create the prompt for the OpenAI API
-    prompt = f"For the following text provide a single expressive word response that expresses the general mood of the content from these options {moods}. It will be stored in a python variable with a max character length of 25."
-
-    # Send the prompt to the OpenAI API
-    chat_completion = await client.chat.completions.create(
-        model=settings.openai_model,
-        messages=[
-            {
-                "role": "system",
-                "content": prompt,
-            },
-            {"role": "user", "content": content},
-        ],
-        temperature=get_model_temperature(settings.openai_model, temperature),
-    )
-
-    # Extract the content from the response
-    response_content = chat_completion.choices[0].message.content
-    logger.debug(f"mood analysis content: {response_content}")
-
-    # Store the mood analysis in a dictionary
-    response_dict = {"mood_analysis": response_content}
-    logger.info("Finished get_mood_analysis function")
-
-    return response_dict
-
-
-async def get_mood(content: str, temperature: float = temperature) -> dict:
-    """
-    Determines the mood of the given content.
-
-    Args:
-        content (str): The content to analyze.
-        temperature (float, optional): The temperature to use for the OpenAI API. Defaults to temperature.
-
-    Returns:
-        dict: A dictionary containing the mood.
-    """
-    # Define the possible moods
-    moods: list = ["positive", "negative", "neutral"]
-    logger.info("Starting get_mood function")
-    client = require_client("mood detection")
-
-    # Create the prompt for the OpenAI API
-    prompt = f"Please determine the mood of the following text using only one of these moods {moods} for the content. It will be stored in a python variable with a max character length of 25."
-
-    # Send the prompt to the OpenAI API
-    chat_completion = await client.chat.completions.create(
-        model=settings.openai_model,
-        messages=[
-            {
-                "role": "system",
-                "content": prompt,
-            },
-            {"role": "user", "content": content},
-        ],
-        temperature=get_model_temperature(settings.openai_model, temperature),
-    )
-
-    # Extract the content from the response
-    response_content = chat_completion.choices[0].message.content
-    logger.debug(f"mood content: {response_content}")
-
-    # Store the mood in a dictionary
-    response_dict = {"mood": response_content}
-
-    logger.info("Finished get_mood function")
-
-    return response_dict
-
-
-async def analyze_post(content: str) -> dict:
-    """Analyzes a post. Delegates to get_analysis() for a single API call."""
-    logger.info("Starting analyze_post function")
-    data = await get_analysis(content=content)
-    logger.info("Finished analyze_post function")
-    return data
 
 
 async def get_url_summary(

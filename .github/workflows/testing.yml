@@ -23,7 +23,7 @@ jobs:
       - name: Install dev dependencies
         run: pip install -r requirements/dev.txt
 
-      - name: Run pre-commit hooks (black + hygiene checks)
+      - name: Run pre-commit hooks (ruff + hygiene checks)
         run: pre-commit run -a
 
       - name: Check lint (ruff)
