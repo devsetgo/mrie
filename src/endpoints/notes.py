@@ -131,8 +131,10 @@ async def process_ai_analysis_background(
         )
         logger.info(f"Completed background AI analysis for note {note_id}")
 
-    except Exception as e:
-        logger.error(f"Error in background AI analysis for note {note_id}: {str(e)}")
+    except Exception:
+        # logger.exception keeps the traceback: a bare str(e) can't tell a
+        # missing OPENAI_KEY from a network failure or a bug in get_analysis.
+        logger.exception(f"Error in background AI analysis for note {note_id}")
         await db_ops.execute_one(
             update(Notes).where(Notes.pkid == note_id).values(ai_fix=True)
         )
@@ -317,7 +319,8 @@ async def bulk_note(
     # read the file content
     file_content = await csv_file.read()
     file_content = file_content.decode("utf-8")
-    logger.debug(f"Received file content: {file_content}")
+    # Length only: the file is the user's private journal export, decrypted.
+    logger.debug(f"Received CSV upload ({len(file_content)} characters)")
     csv_reader = csv.DictReader(io.StringIO(file_content))
     logger.debug(f"Reading notes from file for user: {user_identifier}")
     # add the task to background tasks
@@ -374,7 +377,8 @@ async def edit_note_form(
 
 def _normalize_tags_form_value(new_value):
     if isinstance(new_value, str):
-        return [tag.strip() for tag in new_value.split(",")]
+        # Empty entries dropped so a blank tags field is [], not [""].
+        return [tag.strip() for tag in new_value.split(",") if tag.strip()]
     if not isinstance(new_value, list):
         return [new_value]
     return new_value
@@ -384,10 +388,18 @@ def _collect_note_field_updates(form, old_data: dict, fields: list[str]) -> dict
     updated_data = {}
     for field in fields:
         new_value = form.get(field)
-        if new_value is None or new_value == old_data.get(field):
+        if new_value is None:
             continue
+        old_value = old_data.get(field)
         if field == "tags":
+            # The edit page submits tags on every save as a "a, b" string, but
+            # they're stored as a list, so compare in list form. Comparing the
+            # raw string made tags look hand-edited on every save, which in
+            # turn suppressed the AI re-analysis (see update_note) every time.
             new_value = _normalize_tags_form_value(new_value)
+            old_value = old_value or []
+        if new_value == old_value:
+            continue
         updated_data[field] = new_value
     return updated_data
 
@@ -585,7 +597,7 @@ async def create_note(
     mood = form["mood"]
     note_content = form["note"]
 
-    logger.debug(f"Received mood: {mood} and note: {note_content}")
+    logger.debug(f"Received mood: {mood} and note ({len(note_content)} characters)")
 
     # Create the note immediately with minimal data
     # AI analysis will be done in the background

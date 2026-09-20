@@ -175,7 +175,10 @@ async def get_analysis(content: str, mood_process: str = None) -> dict:
             response_format={"type": "json_object"},
         )
         raw = chat_completion.choices[0].message.content
-        logger.debug(f"get_analysis raw response: {raw}")
+        # Sizes only, here and below: the model's output restates the user's
+        # private journal entry (summary, person names), which is encrypted at
+        # rest and shouldn't be written to the log in the clear.
+        logger.debug(f"get_analysis raw response: {len(raw or '')} characters")
         parsed = json.loads(raw)
 
         raw_tags = parsed.get("tags", [])
@@ -233,7 +236,11 @@ async def get_analysis(content: str, mood_process: str = None) -> dict:
             # it lands on the AI Issues page for a retry, same as a parse failure.
             data["_ai_fix"] = True
         logger.info("get_analysis completed (single call)")
-        logger.debug(f"analysis: {data}")
+        logger.debug(
+            f"analysis: mood_analysis={data['mood_analysis']}, "
+            f"mood={data['mood']['mood']}, tags={len(tags_dict['tags'])}, "
+            f"summary={len(summary)} characters"
+        )
         return data
 
     except (json.JSONDecodeError, KeyError, AttributeError) as exc:
@@ -282,7 +289,7 @@ async def get_blog_post_analysis(
             response_format={"type": "json_object"},
         )
         raw = chat_completion.choices[0].message.content
-        logger.debug(f"get_blog_post_analysis raw: {raw}")
+        logger.debug(f"get_blog_post_analysis raw: {len(raw or '')} characters")
         parsed = json.loads(raw)
 
         raw_tags = parsed.get("tags", [])
