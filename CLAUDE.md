@@ -19,10 +19,9 @@ deliberate, not an oversight.
 ```bash
 make install-dev     # pip install requirements/dev.txt (includes prd.txt)
 make run-dev          # uvicorn with --reload, port 5000
-make test             # pre-commit run -a && PYTHONPATH=. pytest (+ coverage badge)
-make cleanup          # autoflake + ruff + isort, in that order
-make ruff             # ruff check --fix on src/ and tests/
-make black            # black on src/ and tests/
+make test             # pre-commit run -a && pytest -n auto --maxprocesses=8 (parallel; + coverage badge)
+make cleanup          # same as `make ruff`
+make ruff             # ruff check --fix, then ruff format, on src/ and tests/
 make cache            # clean __pycache__ / .pytest_cache
 make alembic-migrate  # alembic upgrade head (Postgres only, see Data layer below)
 make alembic-rev      # alembic revision --autogenerate, prompts for a name
@@ -175,14 +174,17 @@ agnostic to how the session was populated.
   latter silently always returns `1`).
 
 ### Optional-dependency pattern
-`openai`, `selenium`/`webdriver_manager`, `nameparser`, `silly`, `tqdm`,
-`unsync` are all commented out of `requirements/prd.txt` by default (see
-`PROJECT_STATUS.md` for why) but every module that uses them guards the
-import — `src/functions/_optional_deps.py` provides no-op fallbacks for
-`tqdm`/`unsync`; `ai.py`, `youtube_helper.py`, `link_preview.py`,
-`demo_data.py` each wrap their optional import in `try/except
+`selenium`/`webdriver_manager`, `silly`, `tqdm` and `unsync` are commented
+out of `requirements/prd.txt` by default (see `PROJECT_STATUS.md` for why).
+`openai` and `nameparser` were too, but are now enabled because note AI
+analysis and person-name filtering depend on them. Every module that uses any
+of these still guards the import — `src/functions/_optional_deps.py` provides
+no-op fallbacks for `tqdm`/`unsync`; `ai.py`, `youtube_helper.py`,
+`link_preview.py`, `demo_data.py` each wrap their optional import in `try/except
 ImportError` and either no-op or raise a clear `RuntimeError` at
-*call time*. The app must always boot and serve pages with none of these
+*call time* (for OpenAI, `get_client()`/`require_client()` in `ai.py` build the
+client lazily and say separately whether the package or `OPENAI_KEY` is
+missing). The app must always boot and serve pages with none of these
 installed — when adding a new optional integration, follow this same
 pattern rather than a hard top-level import.
 

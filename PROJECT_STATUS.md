@@ -361,6 +361,71 @@ new `tests/conftest.py` that uses `with TestClient(app) as c: yield c`, so
 lifespan runs on setup/teardown for every test - any future test that
 touches the database needs this fixture, not a bare `TestClient(app)`.
 
+## Phase 5 — AI analysis rework, log privacy, tooling (2026-09-18 → 2026-09-20)
+
+Ends at **193 tests / 86% coverage** (`make test`).
+
+### AI note analysis
+- The OpenAI client is built **lazily** (`get_client()`/`require_client()`
+  in `src/functions/ai.py`), not at import. It used to be a module constant,
+  so a worker that imported the module before `openai` was installed or
+  `OPENAI_KEY` was set reported "AI disabled" for its whole lifetime
+  (uvicorn `--reload` watches `.py` files, not `.env`). A missing package and
+  a missing key are now reported as separate `RuntimeError`s, since they're
+  fixed in different places. `openai` and `nameparser` are enabled in
+  `requirements/prd.txt`; every import is still guarded, so the app boots
+  without them.
+- **Editing a note re-runs the analysis** when its body changed, unless the
+  same submit hand-edits `summary`/`tags`/`mood_analysis` (the edit form
+  exposes them so they can be corrected; re-analysing would overwrite that).
+  This shipped broken: the edit page submits `tags` on every save as an
+  `"a, b"` string while they're stored as a list, so tags always looked
+  hand-edited and the re-analysis never fired from a browser. Fixed
+  2026-09-20 by comparing tags in list form; `tests/test_note_reanalysis.py`
+  submits the form as rendered, which is what would have caught it.
+- **Person names never appear in tags or summary**, in any language. The
+  model reports `person_names` per entry; tags and summary are filtered
+  against them accent- and case-insensitively, plus known names capitalized
+  mid-sentence in the entry as a backstop. Cyrillic-style case inflection is
+  handled by a shared-stem rule; Han/kana (no spaces, no inflection) are cut
+  out as substrings instead and never stem-matched; Korean stays word-level.
+  A summary that was only a name is flagged `ai_fix` for a retry. The
+  letters-only sanitizer is Unicode-aware (`[a-zA-Z]` used to turn "José"
+  into "Jos").
+- Removed six caller-less functions from `ai.py` (`get_tags`, `get_summary`,
+  `get_mood_analysis`, `get_mood`, `get_blog_post_analysis`, `analyze_post`),
+  superseded by the single-call `get_analysis`.
+
+### Logging privacy
+Notes are Fernet-encrypted at rest, so decrypted text must not reach the
+logs. `db_init` masks the DB password in the URI it logs; note bodies, CSV
+uploads and the model's output are logged by length or id only, at every
+level. `tests/test_log_privacy.py` plants a sentinel in an entry and fails if
+it shows up in any log line — keep new log calls to the same rule.
+
+### Edit/view pages
+The edit page's textarea is now HTML-escaped (it used `|safe`, so a body
+containing `</textarea><script>` broke out, and re-saving an HTML note
+decoded `&lt;`/`&amp;` into real markup). The **view** page still renders
+note bodies unsanitized by design — see `TODO_TASKS.md` for the sanitizer
+follow-up.
+
+### CSV import
+Repeated header rows (concatenated exports, or a header per page) are skipped
+and counted in a warning instead of being imported as a note.
+
+### Tooling / CI
+- **ruff replaces black, isort and autoflake**: pre-commit runs
+  `ruff-check --fix --no-unsafe-fixes` then `ruff-format`; `make ruff` (also
+  what `make cleanup` runs) applies the unsafe fixes on request. Their pins,
+  `make` targets and config sections are gone.
+- **pytest-xdist**: `make test` runs `-n auto --maxprocesses=8` (~98s → ~25s);
+  each worker has its own in-memory SQLite DB.
+- `.github/workflows/ai_pr_assistant.yml` (`devsetgo/ai-pr-assistant`)
+  replaced the hand-rolled PR-autofill workflow.
+- `.bumpcalver/backups/` and `*:Zone.Identifier` are gitignored (the backups
+  are local `bumpcalver --undo` state).
+
 ## Decisions
 
 1. **Login mechanism**: Resolved — WebAuthn/passkey, see Phase 1.
