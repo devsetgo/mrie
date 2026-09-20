@@ -40,10 +40,14 @@ autolabeler:
     branch:
       - '/^(dep|deps|bump|dependabot)[/-].+/'
 
+# The extra labels below (breaking-change, documentation, refactor, test) are
+# the ones .github/workflows/ai_pr_assistant.yml's label_taxonomy can apply, so
+# AI-labelled PRs land in a category instead of dropping out of the notes.
 categories:
   - title: "Breaking Changes"
     labels:
       - "breaking"
+      - "breaking-change"
   - title: "Features"
     labels:
       - "feature"
@@ -55,9 +59,11 @@ categories:
   - title: "Documentation"
     labels:
       - "docs"
+      - "documentation"
   - title: "Code Improvements"
     labels:
       - "code improvements"
+      - "refactor"
   - title: "GitHub Actions"
     labels:
       - "github actions"
@@ -65,6 +71,7 @@ categories:
     labels:
       - "chore"
       - "dependencies"
+      - "test"
 
 change-template: "- $TITLE (#$NUMBER) (@$AUTHOR)"
 change-title-escapes: "<*_&"
