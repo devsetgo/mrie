@@ -380,6 +380,14 @@ def _normalize(text: str) -> str:
 
 
 def _is_latin(word: str) -> bool:
+    """
+    True if every character is a Latin letter.
+
+    Digits, hyphens and spaces make it False ("well-being" is "not Latin"),
+    and an empty string is vacuously True. is_blocked() relies on both: the
+    empty string short-circuits to "not blocked", and a non-letter sends the
+    word into the stem loop, where it harmlessly matches nothing.
+    """
     return all(unicodedata.name(c, "").startswith("LATIN") for c in word)
 
 
@@ -412,6 +420,8 @@ def _remove_normalized(text: str, token: str) -> str:
     """
     normalized, offsets = [], []
     for index, char in enumerate(text):
+        # Keep whitespace as one space: _normalize() strips, which would delete
+        # it and let a token match across a word boundary.
         for piece in " " if char.isspace() else _normalize(char):
             normalized.append(piece)
             offsets.append(index)
@@ -521,8 +531,10 @@ def strip_names(text: str, blocked: Set[str]) -> str:
 
     original = text
 
-    # Chinese/Japanese/Korean text has no spaces between words, so a name is
-    # not its own word-token there and can only be found as a substring.
+    # Han and kana have no spaces between words, so a name there can only be
+    # found as a substring (Korean is spaced and is handled word-by-word
+    # below). This pass runs first: once the name is cut out, the word pass
+    # can no longer mistake a whole clause for it.
     for token in blocked:
         if _has_unspaced_script(token):
             text = _remove_normalized(text, token)
@@ -531,6 +543,8 @@ def strip_names(text: str, blocked: Set[str]) -> str:
         return "" if is_blocked(match.group(1), blocked) else match.group(0)
 
     cleaned = re.sub(rf"({_LETTERS_ONLY_RE})(?:['’]s)?", _drop, text)
+    # Compare against `original`, not `text`: a change made only by the
+    # substring pass above must still go through the tidy-up below.
     if cleaned == original:
         return original
 
