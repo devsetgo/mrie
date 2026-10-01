@@ -3,7 +3,7 @@
 # needed for local feature work.
 alembic==1.20.0 # From 1.13.3 | Vulnerabilities: None
 cryptography==50.0.1 # From 50.0.0 | Vulnerabilities: None
-devsetgo-lib[sqlite,postgres]==2026.7.23.1 # Vulnerabilities: None
+devsetgo-lib[sqlite,postgres]==2026.9.26.1 # Vulnerabilities: None
 fastapi[all]==0.141.1 # From 0.115.3 | Vulnerabilities: None
 
 # granian==1.6.1 # Vulnerabilities: None — uvicorn is the server actually used
