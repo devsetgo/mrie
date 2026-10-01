@@ -7,7 +7,7 @@ devsetgo-lib[sqlite,postgres]==2026.7.23.1 # Vulnerabilities: None
 fastapi[all]==0.141.1 # From 0.115.3 | Vulnerabilities: None
 
 # granian==1.6.1 # Vulnerabilities: None — uvicorn is the server actually used
-nameparser==2.1.0 # Vulnerabilities: None — AI mood/tag analysis (src/functions/ai.py)
+nameparser==2.3.0 # Vulnerabilities: None — AI mood/tag analysis (src/functions/ai.py)
 openai==2.53.0 # Vulnerabilities: None — AI analysis + youtube helper
 pydantic[email]==2.13.5 # Vulnerabilities: None
 python-dateutil==2.9.0.post0 # Vulnerabilities: None
