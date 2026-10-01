@@ -11,7 +11,7 @@ nameparser==2.1.0 # Vulnerabilities: None — AI mood/tag analysis (src/function
 openai==2.53.0 # Vulnerabilities: None — AI analysis + youtube helper
 pydantic[email]==2.13.5 # Vulnerabilities: None
 python-dateutil==2.9.0.post0 # Vulnerabilities: None
-webauthn==3.0.0 # Vulnerabilities: None
+webauthn==3.0.1 # Vulnerabilities: None
 # selenium==4.46.0 # Vulnerabilities: None — link screenshot capture
 # silly==1.1.0 # Vulnerabilities: None — demo data seeding
 # tqdm==4.66.5 # Vulnerabilities: None — progress bars in import/metrics
