@@ -127,7 +127,11 @@ kind.
   `WEBLINK_PROCESSING` placeholder meanwhile. Every server-side fetch of a
   user-supplied URL (page text, link status, Selenium) must go through
   `page_fetch.is_safe_public_url()`, per redirect hop — it blocks private,
-  loopback, link-local and cluster addresses.
+  loopback, link-local and cluster addresses. Connect to the address it
+  validated (`resolve_public_ip()` + `pinned_request()`), never let the
+  HTTP client resolve the name again (DNS rebinding). Link URLs are
+  validated on every write with `page_fetch.normalize_link_url()` (http/https
+  only) and rendered with the `safe_href` filter.
 - `about.py` — singleton public About page (`AboutPage` DB row, always
   read/created via `_get_or_create_about()`). `GET /about` is public;
   `GET`/`POST /about/edit` and `POST /about/upload-image` require login.
@@ -190,6 +194,14 @@ agnostic to how the session was populated.
   `Select(SomeTable)...`, never `Select(func.count(SomeTable.pkid))` (the
   latter silently always returns `1`).
 
+### Rendering user content
+Never emit a note body with `|safe`. Use the `sanitize_html` filter (nh3)
+or `render_markdown` (markdown-it-py, raw HTML escaped, then sanitized);
+both live in `src/functions/sanitize.py` and fail closed to escaping if
+the package is missing. Anything that acts (re-analysis, AI fix, logout)
+is a `POST` with a `303` redirect, never a `GET`: a cross-site top-level
+`GET` carries `SameSite=Lax` cookies.
+
 ### Optional-dependency pattern
 `selenium`/`webdriver_manager`, `silly` and `tqdm` are pinned in
 `requirements/optional.txt`, not `prd.txt`, so neither the production image
@@ -233,7 +245,18 @@ The image's `CMD` runs `alembic upgrade head` then `exec`s uvicorn
 (`WEB_CONCURRENCY=2` workers sharing the file). uvicorn must trust
 Traefik's forwarded headers (`FORWARDED_ALLOW_IPS`, `*` in compose since
 port 5000 is unpublished), or `url_for()` emits `http://` asset URLs on the
-https site. Back up with `make db-backup`, which uses SQLite's online
+https site. The image tag is `latest` with `pull_policy: always`.
+Secrets are Docker secrets, not `.env` values: `phrase`, `salt` and
+`openai_key` are mounted from `SHARED_SECRETS_DIR` (default
+`/opt/docker/shared/secrets`) at `/run/secrets/<name>`, and
+`src/settings.py` reads any file there whose name matches a setting
+(`secrets_dir`, only when the directory exists). A real env var or `.env`
+value still wins, so local dev is unchanged. Shared non-secret config
+(logging, timezone) comes from `SHARED_CONFIG_FILE` (see
+`common.env.sample`) and is overridden by the app's own `.env`. `PHRASE`
+and `SALT` must stay identical to what the notes were encrypted with. The
+compose file is meant to be copied into a server repo: keep it
+self-contained (no relative build context). Back up with `make db-backup`, which uses SQLite's online
 backup API, never a plain `cp` of a live WAL database.
 
 ### Static assets

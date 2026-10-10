@@ -514,6 +514,15 @@ over, notes get re-imported through the CSV import.
 - **Backups:** `make db-backup` snapshots the live database through
   SQLite's online backup API into `backups/`. Copying a live WAL database
   with `cp` can produce a torn file.
+- **Secrets and shared config (2026-10-10):** `docker-compose.yml` uses
+  the `latest` image tag with `pull_policy: always`, mounts `phrase`,
+  `salt` and `openai_key` as Docker secrets from a directory shared by
+  every app on the server, and layers `common.env` (logging, timezone)
+  under the app's own `.env`. `Settings` reads `/run/secrets` through
+  pydantic-settings' `secrets_dir`; env vars and `.env` take precedence.
+  Per-app secrets such as `session_secret_key` or
+  `registration_bootstrap_token` work the same way: add a compose
+  `secrets:` entry whose `target` is the setting's name.
 - **Never** scale the compose service past one container or put the volume
   on NFS/SMB: WAL relies on shared-memory locking.
 
@@ -530,6 +539,22 @@ over, notes get re-imported through the CSV import.
 - `about/view.html` is now two columns with the headshot on the right
   (sticky). It's hidden below 992px, where the sidebar's copy already
   shows.
+
+## Security fixes from the PR check (2026-10-10)
+
+- Link URLs: validated as absolute http(s) on create, edit and CSV import
+  (`page_fetch.normalize_link_url`), and rendered through `safe_href`, so
+  a stored `javascript:` URL can't run script in the admin origin.
+- SSRF: `fetch_page` and `url_status` connect to the address that was
+  validated (DNS-rebinding fix); Selenium is pinned with
+  `--host-resolver-rules` and its final URL re-checked. A redirect to an
+  internal address still sends one blind request; only an egress policy
+  closes that.
+- Note bodies go through `sanitize_html`/`render_markdown`; the markdown
+  view is server-rendered and no longer loads `marked` from a CDN.
+- `/notes/ai-fix/{id}`, `/weblinks/update/{pkid}` and `/users/logout` are
+  POST-only.
+- `.env.sample` ships production values (`RELEASE_ENV=prd`).
 
 ## Decisions
 
