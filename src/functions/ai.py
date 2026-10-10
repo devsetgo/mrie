@@ -7,6 +7,7 @@ It uses the AsyncOpenAI client to make asynchronous requests to the API. The mod
 Functions:
     get_analysis(content: str, mood_process: str = None) -> dict: Gets the tags, summary, mood analysis, and mood from the given content in one API call.
     get_link_analysis(url, page) -> dict: Title and summary for a bookmarked link, from the fetched page, in one API call.
+    get_about_from_resume(resume_text, voice, focus) -> dict: About-page content (headline, intro, sections) from a résumé, in one API call.
 
 Author:
     Mike Ryan
@@ -622,3 +623,116 @@ async def get_link_analysis(url: str, page=None) -> Dict[str, str]:
         f"get_link_analysis: title {len(title)} chars, summary {len(summary)} chars"
     )
     return {"title": title[:300], "summary": summary}
+
+
+ABOUT_VOICES = {
+    "first": "first person (I, my), as if the owner wrote it",
+    "third": "third person, referring to the owner by first name",
+}
+
+_ABOUT_SYSTEM_PROMPT = (
+    "You write the About page of a personal website from its owner's "
+    "résumé. Make it an engaging read, not a reformatted résumé: open with "
+    "a hook about who they are and what drives them, tell the career as a "
+    "story of the problems they took on and what changed because of them, "
+    "and close with what they're focused on now.\n"
+    "Respond with a JSON object with exactly these keys:\n"
+    '- "headline": one short line, at most 12 words.\n'
+    '- "intro": a list of 1-2 paragraphs.\n'
+    '- "sections": a list of 3-5 objects, each with "heading" (2-6 words), '
+    '"paragraphs" (a list of 1-3 paragraphs) and "highlights" (a list of '
+    "0-6 short phrases, e.g. key skills or achievements; use an empty list "
+    "when a section reads better as prose).\n"
+    "Rules:\n"
+    "- About 400-700 words in total.\n"
+    "- Use only facts stated in the résumé. Never invent employers, titles, "
+    "dates, numbers, awards or quotes.\n"
+    "- This page is public: leave out phone numbers, email addresses, "
+    "street addresses and references.\n"
+    "- Plain text in every string: no markdown, no HTML, no emoji.\n"
+    "- Write in {voice}."
+)
+
+
+def _clean_strings(value, limit: int, max_chars: int) -> List[str]:
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list):
+        return []
+    cleaned = [str(item).strip()[:max_chars] for item in value if str(item).strip()]
+    return cleaned[:limit]
+
+
+def _shape_about_content(parsed: dict) -> dict:
+    """
+    Coerces the model's JSON into the exact shape about/generated.html
+    expects, so a missing key, a string where a list belongs, or an
+    over-long field from the model can't break or bloat the page.
+    """
+    sections = []
+    raw_sections = parsed.get("sections")
+    for raw in raw_sections if isinstance(raw_sections, list) else []:
+        if not isinstance(raw, dict):
+            continue
+        heading = str(raw.get("heading") or "").strip()[:120]
+        paragraphs = _clean_strings(raw.get("paragraphs"), 4, 2000)
+        highlights = _clean_strings(raw.get("highlights"), 8, 200)
+        if heading and (paragraphs or highlights):
+            sections.append(
+                {"heading": heading, "paragraphs": paragraphs, "highlights": highlights}
+            )
+    return {
+        "headline": str(parsed.get("headline") or "").strip()[:200],
+        "intro": _clean_strings(parsed.get("intro"), 3, 2000),
+        "sections": sections[:6],
+    }
+
+
+async def get_about_from_resume(
+    resume_text: str, voice: str = "first", focus: str = ""
+) -> dict:
+    """
+    Turns résumé text into About-page content, in one API call.
+
+    Args:
+        resume_text: Plain text from resume_text.extract_resume_text() or
+            pasted by the user.
+        voice: A key of ABOUT_VOICES; anything else falls back to "first".
+        focus: Optional free-text steer from the user, e.g. "emphasise my
+            open-source Python work".
+
+    Returns:
+        {"headline": str, "intro": [str], "sections": [{"heading": str,
+        "paragraphs": [str], "highlights": [str]}]} - plain text throughout;
+        the caller renders it through an autoescaping template.
+    """
+    client = require_client("About page generation")
+
+    system_prompt = _ABOUT_SYSTEM_PROMPT.format(
+        voice=ABOUT_VOICES.get(voice, ABOUT_VOICES["first"])
+    )
+    user_parts = [f"Résumé:\n{resume_text}"]
+    if focus.strip():
+        user_parts.append(f"Owner's note on what to emphasise: {focus.strip()[:500]}")
+
+    chat_completion = await client.chat.completions.create(
+        model=settings.openai_model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": "\n\n".join(user_parts)},
+        ],
+        temperature=get_model_temperature(settings.openai_model, 0.7),
+        response_format={"type": "json_object"},
+        # A full page is a much longer generation than a note analysis -
+        # reasoning models routinely take 30s+ here.
+        timeout=120,
+    )
+    raw = chat_completion.choices[0].message.content or "{}"
+    parsed = json.loads(raw)
+    content = _shape_about_content(parsed if isinstance(parsed, dict) else {})
+
+    logger.debug(
+        f"get_about_from_resume: {len(content['sections'])} sections from "
+        f"{len(resume_text)} résumé chars"
+    )
+    return content

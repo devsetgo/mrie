@@ -26,14 +26,28 @@ Author:
 
 import uuid
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+)
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from loguru import logger
 from sqlalchemy import Select, insert, update
 
 from ..db_tables import AboutImages, AboutPage
+from ..functions import ai
 from ..functions.db_guards import is_db_error, safe_record
 from ..functions.login_required import check_login
+from ..functions.resume_text import (
+    MAX_RESUME_CHARS,
+    ResumeReadError,
+    extract_resume_text,
+)
 from ..resources import db_ops, templates
 
 router = APIRouter()
@@ -152,6 +166,69 @@ async def upload_about_image(
 
     logger.info(f"About page image uploaded: {image_id}")
     return JSONResponse({"success": True, "url": f"/about/images/{image_id}"})
+
+
+@router.post("/generate-from-resume")
+async def generate_from_resume(
+    resume_file: UploadFile | None = File(None),
+    resume_text: str = Form(""),
+    voice: str = Form("first"),
+    focus: str = Form(""),
+    user_info: dict = Depends(check_login),
+):
+    """
+    Drafts About-page HTML from a résumé (uploaded file, or pasted text when
+    no file is given) for the editor to load. Never saves anything: the
+    draft only replaces the stored page once it's reviewed and saved
+    through POST /about/edit like any other edit.
+    """
+    if resume_file is not None and resume_file.filename:
+        data = await resume_file.read()
+        if len(data) > MAX_UPLOAD_BYTES:
+            return JSONResponse(
+                {"success": False, "message": "File is too large (5 MB max)"},
+                status_code=413,
+            )
+        try:
+            text = extract_resume_text(resume_file.filename, data)
+        except ResumeReadError as ex:
+            return JSONResponse({"success": False, "message": str(ex)}, status_code=400)
+    else:
+        text = resume_text.strip()[:MAX_RESUME_CHARS]
+
+    if not text:
+        return JSONResponse(
+            {"success": False, "message": "Upload a résumé or paste its text."},
+            status_code=400,
+        )
+
+    try:
+        about = await ai.get_about_from_resume(text, voice=voice, focus=focus)
+    except RuntimeError as ex:
+        # require_client(): openai not installed or OPENAI_KEY missing.
+        logger.warning(f"About page generation unavailable: {ex}")
+        return JSONResponse(
+            {"success": False, "message": "AI is not configured on this server."},
+            status_code=503,
+        )
+    except Exception as ex:
+        # Timeouts, API errors, or unparseable JSON from the model. Logged in
+        # full; the browser only gets a generic message.
+        logger.error(f"About page generation failed: {type(ex).__name__}: {ex}")
+        return JSONResponse(
+            {"success": False, "message": "The AI request failed. Try again."},
+            status_code=502,
+        )
+
+    if not about["sections"] and not about["intro"]:
+        return JSONResponse(
+            {"success": False, "message": "The AI returned an empty draft. Try again."},
+            status_code=502,
+        )
+
+    html = templates.get_template("about/generated.html").render(about=about)
+    logger.info(f"About page draft generated ({len(about['sections'])} sections)")
+    return JSONResponse({"success": True, "html": html})
 
 
 @router.get("/images/{image_id}", responses={404: {"description": "No such image"}})

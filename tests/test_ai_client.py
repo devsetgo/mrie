@@ -109,3 +109,55 @@ def test_ai_entry_points_raise_a_clear_error_without_a_client(
 
     with pytest.raises(RuntimeError, match=f"{feature}.*disabled.*OPENAI_KEY"):
         asyncio.run(call())
+
+
+def test_shape_about_content_coerces_bad_model_output():
+    shaped = ai._shape_about_content(
+        {
+            "headline": "  Hello  ",
+            "intro": "one paragraph as a string",
+            "sections": [
+                {"heading": "Kept", "paragraphs": ["p"], "highlights": "solo"},
+                {"heading": "", "paragraphs": ["no heading"]},
+                {"heading": "No body", "paragraphs": [], "highlights": []},
+                "not a dict",
+            ],
+        }
+    )
+    assert shaped == {
+        "headline": "Hello",
+        "intro": ["one paragraph as a string"],
+        "sections": [{"heading": "Kept", "paragraphs": ["p"], "highlights": ["solo"]}],
+    }
+
+
+def test_shape_about_content_handles_missing_keys():
+    assert ai._shape_about_content({}) == {"headline": "", "intro": [], "sections": []}
+
+
+def test_get_about_from_resume_sends_voice_and_focus(fake_openai, monkeypatch):
+    import asyncio
+    import json
+    from types import SimpleNamespace
+
+    sent = {}
+
+    async def create(**kwargs):
+        sent.update(kwargs)
+        body = {"headline": "H", "intro": ["i"], "sections": []}
+        message = SimpleNamespace(content=json.dumps(body))
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
+    monkeypatch.setattr(ai, "require_client", lambda feature: client)
+
+    result = asyncio.run(
+        ai.get_about_from_resume("CV text", voice="third", focus="Python")
+    )
+
+    assert result == {"headline": "H", "intro": ["i"], "sections": []}
+    assert "third person" in sent["messages"][0]["content"]
+    assert "Python" in sent["messages"][1]["content"]
+    assert sent["response_format"] == {"type": "json_object"}

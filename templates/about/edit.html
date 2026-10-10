@@ -8,6 +8,63 @@
     crossorigin="anonymous" referrerpolicy="no-referrer" />
 {% endblock %}
 {% block body %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h3 class="card-title mb-0">
+                    <i class="fa-solid fa-wand-magic-sparkles me-2"></i>Generate from résumé
+                </h3>
+                <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse"
+                    data-bs-target="#resume-generator" aria-expanded="false" aria-controls="resume-generator">
+                    Show
+                </button>
+            </div>
+            <div class="collapse" id="resume-generator">
+                <div class="card-body">
+                    <p class="text-muted mb-3">
+                        AI turns your résumé into a story-style About page and replaces the editor content below.
+                        Nothing is saved until you click <strong>Save</strong>; leave without saving to keep the current page. Contact details
+                        (phone, email, address) are left out. The résumé text is sent to OpenAI.
+                    </p>
+                    <form id="resume-form">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label for="resume_file" class="form-label">Résumé file (PDF, DOCX or TXT, 5 MB max)</label>
+                                <input class="form-control" type="file" id="resume_file" name="resume_file"
+                                    accept=".pdf,.docx,.txt,.md">
+                            </div>
+                            <div class="col-md-3">
+                                <label for="voice" class="form-label">Voice</label>
+                                <select class="form-select" id="voice" name="voice">
+                                    <option value="first" selected>First person ("I lead…")</option>
+                                    <option value="third">Third person ("Mike leads…")</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label for="focus" class="form-label">Emphasise (optional)</label>
+                                <input class="form-control" type="text" id="focus" name="focus" maxlength="500"
+                                    placeholder="e.g. open-source Python work">
+                            </div>
+                            <div class="col-12">
+                                <label for="resume_text" class="form-label">…or paste the résumé text</label>
+                                <textarea class="form-control" id="resume_text" name="resume_text" rows="5"
+                                    placeholder="Used only when no file is chosen"></textarea>
+                            </div>
+                            <div class="col-12 d-flex align-items-center gap-3">
+                                <button type="submit" class="btn btn-primary" id="resume-generate">
+                                    <span class="spinner-border spinner-border-sm d-none me-1" role="status" aria-hidden="true"></span>
+                                    Generate draft
+                                </button>
+                                <span id="resume-status" class="small" role="status" aria-live="polite"></span>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 <div class="row">
     <div class="col-12">
         <div class="card">
@@ -20,7 +77,8 @@
             <div class="card-body">
                 <form action="/about/edit" method="post">
                     <div class="mb-3">
-                        <textarea id="content" name="content">{{ content | safe }}</textarea>
+                        {# Escaped, no |safe: the browser entity-decodes textarea contents, so autoescape round-trips the stored HTML exactly - same as notes/edit.html. #}
+                        <textarea id="content" name="content">{{ content }}</textarea>
                     </div>
                     <button type="submit" class="btn btn-primary">Save</button>
                 </form>
@@ -58,6 +116,43 @@
           fileFieldName: 'fileToUpload',
           urlPropertyName: 'url'
         }
+      }
+    });
+
+    const $status = $('#resume-status');
+    const $button = $('#resume-generate');
+    const setStatus = (message, cls) => $status.attr('class', 'small ' + cls).text(message);
+
+    $('#resume-form').on('submit', async function (event) {
+      event.preventDefault();
+      const form = new FormData(this);
+      if (!$('#resume_file').val() && !$('#resume_text').val().trim()) {
+        setStatus('Choose a file or paste your résumé first.', 'text-danger');
+        return;
+      }
+      $button.prop('disabled', true).find('.spinner-border').removeClass('d-none');
+      setStatus('Writing your About page… this can take up to a minute.', 'text-muted');
+      try {
+        // Accept: JSON so a 401/expired session comes back as JSON rather
+        // than a redirect to the login page's HTML (see app_routes.py).
+        const response = await fetch('/about/generate-from-resume', {
+          method: 'POST',
+          body: form,
+          headers: { 'Accept': 'application/json' },
+          credentials: 'same-origin'
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) {
+          setStatus(data.message || data.detail || 'Generation failed (' + response.status + ').', 'text-danger');
+          return;
+        }
+        $('#content').trumbowyg('html', data.html);
+        setStatus('Draft loaded below. Review and edit it, then click Save.', 'text-success');
+        document.getElementById('content').closest('.card').scrollIntoView({ behavior: 'smooth' });
+      } catch (err) {
+        setStatus('Network error: ' + err.message, 'text-danger');
+      } finally {
+        $button.prop('disabled', false).find('.spinner-border').addClass('d-none');
       }
     });
   });

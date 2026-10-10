@@ -148,3 +148,133 @@ def test_unknown_image_returns_404(client):
         headers={"accept": "application/json"},
     )
     assert response.status_code == 404
+
+
+_GENERATED = {
+    "headline": "Builder of <calm> platforms",
+    "intro": ["I like hard problems."],
+    "sections": [
+        {
+            "heading": "What I do",
+            "paragraphs": ["Lead teams."],
+            "highlights": ["Python", "<script>alert(1)</script>"],
+        }
+    ],
+}
+
+
+@pytest.fixture
+def fake_about_ai(monkeypatch):
+    from src.functions import ai
+
+    calls = []
+
+    async def fake(resume_text, voice="first", focus=""):
+        calls.append({"text": resume_text, "voice": voice, "focus": focus})
+        return _GENERATED
+
+    monkeypatch.setattr(ai, "get_about_from_resume", fake)
+    return calls
+
+
+def test_generate_from_pasted_text_returns_escaped_html(
+    logged_in_client, fake_about_ai
+):
+    response = logged_in_client.post(
+        "/about/generate-from-resume",
+        data={"resume_text": "  CTO at Example  ", "voice": "third", "focus": "py"},
+    )
+    assert response.status_code == 200
+    html = response.json()["html"]
+    assert "<h2>Builder of &lt;calm&gt; platforms</h2>" in html
+    assert "<h3>What I do</h3>" in html
+    assert "<li>Python</li>" in html
+    assert "<script>" not in html
+    assert fake_about_ai == [
+        {"text": "CTO at Example", "voice": "third", "focus": "py"}
+    ]
+
+
+def test_generate_from_uploaded_file_prefers_the_file(logged_in_client, fake_about_ai):
+    response = logged_in_client.post(
+        "/about/generate-from-resume",
+        data={"resume_text": "ignored"},
+        files={"resume_file": ("cv.txt", b"Staff engineer", "text/plain")},
+    )
+    assert response.status_code == 200
+    assert fake_about_ai[0]["text"] == "Staff engineer"
+
+
+def test_generate_does_not_save_the_page(logged_in_client, fake_about_ai):
+    before = logged_in_client.get("/about").text
+    logged_in_client.post("/about/generate-from-resume", data={"resume_text": "x"})
+    assert "Builder of" not in logged_in_client.get("/about").text
+    assert logged_in_client.get("/about").text == before
+
+
+def test_generate_requires_input(logged_in_client, fake_about_ai):
+    response = logged_in_client.post("/about/generate-from-resume", data={})
+    assert response.status_code == 400
+    assert fake_about_ai == []
+
+
+def test_generate_rejects_unreadable_file(logged_in_client, fake_about_ai):
+    response = logged_in_client.post(
+        "/about/generate-from-resume",
+        files={"resume_file": ("cv.png", b"\x89PNG", "image/png")},
+    )
+    assert response.status_code == 400
+    assert "Unsupported" in response.json()["message"]
+
+
+def test_generate_rejects_oversized_file(logged_in_client, fake_about_ai):
+    response = logged_in_client.post(
+        "/about/generate-from-resume",
+        files={"resume_file": ("cv.txt", b"x" * (5 * 1024 * 1024 + 1), "text/plain")},
+    )
+    assert response.status_code == 413
+
+
+@pytest.mark.parametrize(
+    "error,status",
+    [(RuntimeError("no key"), 503), (TimeoutError("slow"), 502)],
+    ids=["ai-unconfigured", "ai-failed"],
+)
+def test_generate_reports_ai_failures(logged_in_client, monkeypatch, error, status):
+    from src.functions import ai
+
+    async def boom(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(ai, "get_about_from_resume", boom)
+    response = logged_in_client.post(
+        "/about/generate-from-resume", data={"resume_text": "x"}
+    )
+    assert response.status_code == status
+    assert response.json()["success"] is False
+
+
+def test_generate_rejects_an_empty_draft(logged_in_client, monkeypatch):
+    from src.functions import ai
+
+    async def empty(*args, **kwargs):
+        return {"headline": "Hi", "intro": [], "sections": []}
+
+    monkeypatch.setattr(ai, "get_about_from_resume", empty)
+    response = logged_in_client.post(
+        "/about/generate-from-resume", data={"resume_text": "x"}
+    )
+    assert response.status_code == 502
+
+
+def test_generate_requires_login(client):
+    response = client.post(
+        "/about/generate-from-resume",
+        data={"resume_text": "x"},
+        headers={"Accept": "application/json"},
+    )
+    assert response.status_code == 401
+
+
+def test_about_page_shows_headshot(client):
+    assert "img/headshot_2.jpg" in client.get("/about").text.split("about-photo")[-1]
