@@ -8,44 +8,37 @@ creating it with default content on first access). Viewing is public;
 editing requires a logged-in session, same as every other write path in this
 app (Depends(check_login)).
 
-Uploaded images go to static/uploads/about/ on the filesystem, not the DB
-blob + base64 pattern WebLinks uses for its preview thumbnail
-(image_preview_data) - that pattern fits a single auto-fetched image per
-link, but the About page can accumulate many free-form embedded images over
-time via the rich-text editor, and base64-inlining all of them into the
-`content` column would bloat it significantly with no ability to reuse an
-image across edits. A plain file on disk, referenced by URL, keeps the
-stored HTML small and reuses the app's existing static-file serving with no
-new endpoint needed.
+Uploaded images are stored in the database (AboutImages, one row per image)
+and served by GET /about/images/{image_id}, referenced from the stored HTML
+by that URL. Not as loose files on disk: keeping every piece of runtime
+state inside the one SQLite file means a single file copy (see
+`make db-backup`) backs up the whole site, images included. Also not the base64-inlined blob pattern WebLinks uses
+for its preview thumbnail (image_preview_data): the rich-text editor can
+accumulate many free-form images, and inlining all of them into the
+`content` column would bloat every page load. A separate row per image,
+fetched by URL, keeps the stored HTML small and lets browsers cache each
+image independently.
 
 Author:
     Mike Ryan
     MIT Licensed
 """
 
-import os
 import uuid
 
-import anyio
-from fastapi import APIRouter, Depends, File, Request, UploadFile
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from loguru import logger
 from sqlalchemy import Select, insert, update
 
-from ..db_tables import AboutPage
+from ..db_tables import AboutImages, AboutPage
 from ..functions.db_guards import is_db_error, safe_record
 from ..functions.login_required import check_login
 from ..resources import db_ops, templates
 
 router = APIRouter()
 
-UPLOAD_DIR = os.path.join("static", "uploads", "about")
-ALLOWED_IMAGE_TYPES = {
-    "image/jpeg": ".jpg",
-    "image/png": ".png",
-    "image/gif": ".gif",
-    "image/webp": ".webp",
-}
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
 
 DEFAULT_CONTENT = """\
@@ -144,18 +137,40 @@ async def upload_about_image(
             status_code=413,
         )
 
-    extension = ALLOWED_IMAGE_TYPES[file_to_upload.content_type]
-    filename = f"{uuid.uuid4()}{extension}"
-    file_path = os.path.join(UPLOAD_DIR, filename)
-    try:
-        os.makedirs(UPLOAD_DIR, exist_ok=True)
-        await anyio.Path(file_path).write_bytes(data)
-    except OSError as exc:
-        logger.error(f"Error saving uploaded about-page image {filename}: {exc}")
+    image_id = str(uuid.uuid4())
+    result = await db_ops.execute_one(
+        insert(AboutImages).values(
+            pkid=image_id, content_type=file_to_upload.content_type, data=data
+        )
+    )
+    if is_db_error(result):
+        logger.error(f"Error saving uploaded about-page image {image_id}: {result}")
         return JSONResponse(
             {"success": False, "message": "Failed to save the uploaded image"},
             status_code=500,
         )
 
-    logger.info(f"About page image uploaded: {filename}")
-    return JSONResponse({"success": True, "url": f"/statics/uploads/about/{filename}"})
+    logger.info(f"About page image uploaded: {image_id}")
+    return JSONResponse({"success": True, "url": f"/about/images/{image_id}"})
+
+
+@router.get("/images/{image_id}", responses={404: {"description": "No such image"}})
+async def get_about_image(image_id: str):
+    image = safe_record(
+        await db_ops.read_one_record(
+            Select(AboutImages).where(AboutImages.pkid == image_id)
+        )
+    )
+    if image is None:
+        raise HTTPException(status_code=404)
+    # Each upload gets a fresh id and rows are never rewritten, so a given
+    # URL's bytes never change - safe to let browsers cache it forever.
+    # nosniff because content_type came from the uploading client.
+    return Response(
+        content=image.data,
+        media_type=image.content_type,
+        headers={
+            "Cache-Control": "public, max-age=31536000, immutable",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )

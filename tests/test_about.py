@@ -2,22 +2,71 @@
 """
 About page edit + image upload coverage (src/endpoints/about.py). Viewing
 /about itself is already covered in test_main.py.
-
-upload_about_image writes to a real path on disk (static/uploads/about/,
-gitignored - see CLAUDE.md) rather than the database, so this is the one
-place in the test suite with a real filesystem side effect; each test that
-uploads a file removes it again in a `finally` block to avoid littering the
-repo working tree.
 """
 
 import base64
-import os
+from html.parser import HTMLParser
+
+import pytest
 
 # A minimal valid 1x1 transparent PNG.
 _TINY_PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
     "+A8AAQUBAScY42YAAAAASUVORK5CYII="
 )
+
+
+BREAKOUT = "</textarea><script>alert('xss')</script>"
+RICH_TEXT = "<p>Fish &amp; chips, <strong>and</strong> a &lt;tag&gt;</p>"
+
+
+class _ContentTextarea(HTMLParser):
+    """Reads the content textarea the way a browser does (entities decoded)."""
+
+    def __init__(self):
+        super().__init__()
+        self.value = None
+        self._inside = False
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "textarea" and dict(attrs).get("name") == "content":
+            self._inside = True
+            self.value = ""
+
+    def handle_endtag(self, tag):
+        if tag == "textarea":
+            self._inside = False
+
+    def handle_data(self, data):
+        if self._inside:
+            self.value += data
+
+
+def _save_and_reload_editor(client, content):
+    response = client.post(
+        "/about/edit", data={"content": content}, follow_redirects=False
+    )
+    assert response.status_code == 303
+    page = client.get("/about/edit")
+    assert page.status_code == 200
+    parser = _ContentTextarea()
+    parser.feed(page.text)
+    return page.text, parser.value
+
+
+def test_content_cannot_break_out_of_the_edit_textarea(logged_in_client):
+    html, _ = _save_and_reload_editor(logged_in_client, f"before {BREAKOUT} after")
+    assert "<script>alert('xss')</script>" not in html
+
+
+@pytest.mark.parametrize(
+    "content",
+    [RICH_TEXT, f"before {BREAKOUT} after", "plain text, no markup"],
+    ids=["rich-text", "hostile", "plain"],
+)
+def test_edit_textarea_round_trips_the_stored_content(logged_in_client, content):
+    _, loaded = _save_and_reload_editor(logged_in_client, content)
+    assert loaded == content
 
 
 def test_about_edit_requires_login(client):
@@ -69,14 +118,33 @@ def test_upload_about_image_success(logged_in_client):
         "/about/upload-image",
         files={"fileToUpload": ("tiny.png", _TINY_PNG, "image/png")},
     )
-    try:
-        assert response.status_code == 200
-        body = response.json()
-        assert body["success"] is True
-        assert body["url"].startswith("/statics/uploads/about/")
-    finally:
-        uploaded_path = os.path.join(
-            "static", "uploads", "about", os.path.basename(body["url"])
-        )
-        if os.path.exists(uploaded_path):
-            os.remove(uploaded_path)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["url"].startswith("/about/images/")
+
+
+def test_uploaded_image_is_served_publicly(logged_in_client):
+    client = logged_in_client
+    upload = client.post(
+        "/about/upload-image",
+        files={"fileToUpload": ("tiny.png", _TINY_PNG, "image/png")},
+    )
+    image_url = upload.json()["url"]
+
+    # The About page is public, so its images must load without a session.
+    client.cookies.clear()
+    response = client.get(image_url)
+    assert response.status_code == 200
+    assert response.content == _TINY_PNG
+    assert response.headers["content-type"] == "image/png"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert "immutable" in response.headers["cache-control"]
+
+
+def test_unknown_image_returns_404(client):
+    response = client.get(
+        "/about/images/00000000-0000-0000-0000-000000000000",
+        headers={"accept": "application/json"},
+    )
+    assert response.status_code == 404
