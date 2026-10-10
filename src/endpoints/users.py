@@ -371,7 +371,8 @@ async def register_verify(request: Request):
     return {"status": "ok"}
 
 
-@router.get("/logout")
+# POST so another site can't log the admin out with a link or an <img>.
+@router.post("/logout")
 async def logout(request: Request):
     user_identifier = request.session.get("user_identifier", None)
     request.session.clear()

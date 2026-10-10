@@ -25,7 +25,7 @@
               </div>
               <div class="mb-3">
                 <label>URL:</label>
-                <p><a href="{{ weblink.url }}" target="_blank">{{ weblink.url }}</a></p>
+                <p><a href="{{ weblink.url | safe_href }}" target="_blank" rel="noopener noreferrer">{{ weblink.url }}</a></p>
               </div>
               <div class="mb-3">
                 <label>Summary:</label>

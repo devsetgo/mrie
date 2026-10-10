@@ -111,11 +111,12 @@
                         class="fa-solid fa-pen-to-square fa-lg text-white"></i></a>
                     {% endif %}
                     {% if request.session.is_admin is true %}
-                    <a href="/weblinks/update/{{weblink.pkid}}" class="btn {{ 'btn-danger' if weblink.ai_fix else 'btn-success' }} ms-2"
-                        title="Send to AI Fix" hx-get="/weblinks/update/{{weblink.pkid}}"
-                        hx-indicator=".htmx-indicator">
-                        <i class="fa-solid fa-robot fa-lg text-white"></i>
-                    </a>
+                    <form method="post" action="/weblinks/update/{{weblink.pkid}}" class="d-inline">
+                        <button type="submit" class="btn {{ 'btn-danger' if weblink.ai_fix else 'btn-success' }} ms-2"
+                            title="Send to AI Fix">
+                            <i class="fa-solid fa-robot fa-lg text-white"></i>
+                        </button>
+                    </form>
                     {% endif %}
                 </div>
             </div>
@@ -139,7 +140,7 @@
                                 <div class="col-md-6">
                                     <div class="mb-3">
                                         <label>URL:</label>
-                                        <p><a href="{{ weblink.url }}" target="_blank">{{ weblink.title }}</a></p>
+                                        <p><a href="{{ weblink.url | safe_href }}" target="_blank" rel="noopener noreferrer">{{ weblink.title }}</a></p>
                                     </div>
                                     <div class="mb-3">
                                         <label>Summary:</label>

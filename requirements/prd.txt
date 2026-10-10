@@ -2,7 +2,9 @@ alembic==1.20.0 # Vulnerabilities: None
 cryptography==50.0.1 # Vulnerabilities: None
 devsetgo-lib[sqlite]==2026.9.26.1 # From 2026.7.23.1 | Vulnerabilities: None
 fastapi[all]==0.141.1 # Vulnerabilities: None
+markdown-it-py==4.2.0
 nameparser==2.3.0 # From 2.1.0 | Vulnerabilities: None
+nh3==0.3.7
 openai==3.19.2 # From 2.53.0 | Vulnerabilities: None
 pydantic[email]==2.13.5 # Vulnerabilities: None
 pypdf==6.20.0

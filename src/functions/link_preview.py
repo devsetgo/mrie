@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """Link status checks and Selenium screenshot capture for weblinks."""
 
+import ipaddress
 import time
+from urllib.parse import urlparse
 
 import anyio
 import httpx
@@ -11,7 +13,7 @@ from sqlalchemy import Select, update
 from ..db_tables import WebLinks, compute_weblink_ai_fix
 from ..functions.db_guards import safe_record as _safe_record
 from ..resources import db_ops
-from .page_fetch import is_safe_public_url
+from .page_fetch import is_safe_public_url, pinned_request, resolve_public_ip
 
 try:
     from selenium import webdriver
@@ -38,11 +40,14 @@ async def url_status(url: str) -> bool:
     # Same SSRF guard as page fetching and screenshots - this runs on every
     # view of a link. No redirects are followed (httpx default), so the one
     # checked hop is the only one requested.
-    if not await anyio.to_thread.run_sync(is_safe_public_url, url):
+    ip = await anyio.to_thread.run_sync(resolve_public_ip, url)
+    if ip is None:
         return False
 
     try:
-        response = await client.get(url)
+        # Connect to the address that was just checked (see pinned_request).
+        request_url, headers, extensions = pinned_request(url, ip)
+        response = await client.get(request_url, headers=headers, extensions=extensions)
         if response.status_code < 400:
             return True
         return False
@@ -79,6 +84,23 @@ async def save_preview_image(pkid: str, image: bytes):
         logger.error(error)
 
 
+def _host_resolver_rule(url: str, ip: str):
+    """
+    Chrome `--host-resolver-rules` value pinning `url`'s hostname to `ip`,
+    or None when the URL already names an address (nothing to pin).
+    """
+    host = urlparse(url).hostname
+    if not host:
+        return None
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        pass
+    else:
+        return None
+    return f"MAP {host} [{ip}]" if ":" in ip else f"MAP {host} {ip}"
+
+
 def _capture_full_page_screenshot_sync(url: str) -> bytes:
     """
     Synchronous Selenium body of capture_full_page_screenshot(). Runs in a
@@ -88,7 +110,8 @@ def _capture_full_page_screenshot_sync(url: str) -> bytes:
     """
     from .youtube_helper import is_youtube_url
 
-    if not is_safe_public_url(url):
+    ip = resolve_public_ip(url)
+    if ip is None:
         raise ValueError(f"Refusing to capture screenshot for unsafe URL: {url!r}")
 
     # Set up Chrome options
@@ -104,6 +127,16 @@ def _capture_full_page_screenshot_sync(url: str) -> bytes:
         "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
     )
     chrome_options.binary_location = "/usr/bin/google-chrome"  # Path to Chrome binary
+
+    # Chrome does its own DNS lookup, so without this a hostile DNS server
+    # could answer "public" to the check above and "internal" to Chrome.
+    # The rule keeps the hostname (certificates and cookies still match)
+    # but forces it to the address that was just checked. Only the starting
+    # host is pinned; a redirect to another host is caught by the
+    # final-URL check below.
+    pin_rule = _host_resolver_rule(url, ip)
+    if pin_rule:
+        chrome_options.add_argument(f"--host-resolver-rules={pin_rule}")
 
     # For YouTube URLs, add additional options to avoid bot detection
     if is_youtube_url(url):
@@ -125,6 +158,15 @@ def _capture_full_page_screenshot_sync(url: str) -> bytes:
 
         # Navigate to the URL
         driver.get(url)
+
+        # Redirects (HTTP, meta refresh, script) are followed by Chrome, not
+        # by the checked fetch path. If it ended up somewhere internal, the
+        # request has already been made, but the response must not be
+        # rendered into a preview image the admin can view.
+        if not is_safe_public_url(driver.current_url):
+            raise ValueError(
+                f"Refusing to capture {url!r}: it redirected to an unsafe address"
+            )
 
         # For YouTube, wait a bit longer and handle cookie acceptance
         if is_youtube_url(url):

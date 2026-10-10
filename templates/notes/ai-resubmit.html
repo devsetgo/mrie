@@ -91,7 +91,9 @@
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="mb-3">
-                                    <a href="/notes/ai-fix/{{note.pkid}}" class="btn btn-warning">Fix AI</a>
+                                    <form method="post" action="/notes/ai-fix/{{note.pkid}}">
+                                        <button type="submit" class="btn btn-warning">Fix AI</button>
+                                    </form>
                                 </div>
                             </div>
                         </div>

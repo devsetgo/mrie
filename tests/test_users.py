@@ -53,9 +53,23 @@ def test_dev_login_returns_404_when_disabled(client, monkeypatch):
     assert response.headers["location"] == "/error/404"
 
 
+def test_logout_cannot_be_triggered_by_get(logged_in_client):
+    # A link or <img> on another site must not be able to log the admin out.
+    response = logged_in_client.get(
+        "/users/logout",
+        headers={"Accept": "application/json"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 405
+    # Still logged in: a login-gated page loads rather than bouncing.
+    assert (
+        logged_in_client.get("/about/edit", follow_redirects=False).status_code == 200
+    )
+
+
 def test_logout_clears_session(logged_in_client):
     client = logged_in_client
-    response = client.get("/users/logout", follow_redirects=False)
+    response = client.post("/users/logout", follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"] == "/"
 
@@ -403,7 +417,7 @@ def test_login_verify_success_establishes_session_and_updates_credential(
     )
     assert register.status_code == 200
 
-    client.get("/users/logout", follow_redirects=False)
+    client.post("/users/logout", follow_redirects=False)
 
     # Same credential ("AAAA" raw ID) used to log in - real credential/user
     # lookup, only the signature check itself is mocked.

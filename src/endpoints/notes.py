@@ -258,7 +258,10 @@ async def ai_update_note(
     )
 
 
-@router.get("/ai-fix/{note_id}")
+# POST, not GET: it clears the flag and queues a paid OpenAI call, and a GET
+# can be triggered by any page the admin visits (a cross-site top-level
+# navigation carries SameSite=Lax cookies; a cross-site POST does not).
+@router.post("/ai-fix/{note_id}")
 async def ai_fix_processing(
     background_tasks: BackgroundTasks,
     request: Request,
@@ -294,7 +297,7 @@ async def ai_fix_processing(
         mood_process=mood,
     )
     logger.info(f"Queued background AI fix for note {note_id}")
-    return RedirectResponse(url=f"/notes/view/{note_id}", status_code=302)
+    return RedirectResponse(url=f"/notes/view/{note_id}", status_code=303)
 
 
 @router.get("/bulk")

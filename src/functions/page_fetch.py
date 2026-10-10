@@ -41,30 +41,57 @@ HEADERS = {
 }
 
 
-def is_safe_public_url(url: str) -> bool:
+def normalize_link_url(raw: object) -> Optional[str]:
     """
-    Rejects non-http(s) schemes (file://, etc.) and any hostname that
-    resolves to a private/loopback/link-local/reserved address - the cloud
-    metadata endpoint (169.254.169.254), internal services (RFC1918), the
-    local machine (127.0.0.0/8), and K3s' own pod/service networks.
+    Returns the stripped URL if it is an absolute http(s) URL with a host,
+    else None. Links are rendered as `<a href>`, and a stored
+    `javascript:`/`data:` URL would run script in the admin's origin when
+    clicked - autoescaping doesn't neutralise a scheme - so every path that
+    stores a link URL goes through this first.
+    """
+    if not isinstance(raw, str):
+        return None
+    url = raw.strip()
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return None
+    if parsed.scheme.lower() not in _ALLOWED_SCHEMES or not parsed.hostname:
+        return None
+    return url
+
+
+def resolve_public_ip(url: str) -> Optional[str]:
+    """
+    Returns the address to connect to for `url`, or None if the URL mustn't
+    be fetched: a non-http(s) scheme (file://, etc.), or a hostname with
+    *any* private/loopback/link-local/reserved address - the cloud metadata
+    endpoint (169.254.169.254), internal services (RFC1918), the local
+    machine (127.0.0.0/8), and K3s' own pod/service networks.
+
+    Callers should connect to the returned address (see pinned_request())
+    rather than let the HTTP client resolve the name a second time: a
+    hostile DNS server could otherwise answer "public" here and "internal"
+    to the client's own lookup (DNS rebinding).
 
     Blocking (DNS lookup) - call it via anyio.to_thread from async code.
     """
     try:
         parsed = urlparse(url)
     except ValueError:
-        return False
+        return None
 
     if parsed.scheme not in _ALLOWED_SCHEMES or not parsed.hostname:
-        return False
+        return None
 
     try:
         addr_infos = socket.getaddrinfo(parsed.hostname, None)
     except socket.gaierror, UnicodeError:
-        return False
+        return None
 
+    addresses = []
     for _family, _type, _proto, _canonname, sockaddr in addr_infos:
-        ip = ipaddress.ip_address(sockaddr[0])
+        ip = ipaddress.ip_address(sockaddr[0].split("%")[0])
         if (
             ip.is_private
             or ip.is_loopback
@@ -73,9 +100,31 @@ def is_safe_public_url(url: str) -> bool:
             or ip.is_multicast
             or ip.is_unspecified
         ):
-            return False
+            return None
+        addresses.append(str(ip))
 
-    return True
+    return addresses[0] if addresses else None
+
+
+def is_safe_public_url(url: str) -> bool:
+    """True if resolve_public_ip() finds a connectable public address."""
+    return resolve_public_ip(url) is not None
+
+
+def pinned_request(url: str, ip: str) -> tuple[str, dict, dict]:
+    """
+    Returns (url, headers, extensions) that make httpx connect to `ip`
+    while still presenting `url`'s own hostname: the Host header carries the
+    name for virtual hosting, and httpcore's `sni_hostname` extension sets
+    both the TLS SNI and the name the certificate is verified against, so
+    HTTPS validation is unchanged.
+    """
+    parsed = httpx.URL(url)
+    return (
+        str(parsed.copy_with(host=ip)),
+        {"Host": parsed.netloc.decode("ascii")},
+        {"sni_hostname": parsed.host},
+    )
 
 
 @dataclass
@@ -191,16 +240,24 @@ async def fetch_page(
             transport=transport,
         ) as client:
             for _hop in range(MAX_REDIRECTS + 1):
-                if not await anyio.to_thread.run_sync(is_safe_public_url, current):
+                ip = await anyio.to_thread.run_sync(resolve_public_ip, current)
+                if ip is None:
                     logger.warning(f"Refusing to fetch unsafe URL: {current!r}")
                     return None
 
-                async with client.stream("GET", current) as response:
+                # Connect to the address that was just checked, not whatever
+                # the client would resolve the name to a moment later.
+                request_url, headers, extensions = pinned_request(current, ip)
+                async with client.stream(
+                    "GET", request_url, headers=headers, extensions=extensions
+                ) as response:
                     if response.is_redirect:
                         location = response.headers.get("location")
                         if not location:
                             return None
-                        current = str(response.url.join(location))
+                        # Join against the logical URL: response.url is the
+                        # pinned (IP) form.
+                        current = str(httpx.URL(current).join(location))
                         continue
 
                     if response.status_code >= 400:

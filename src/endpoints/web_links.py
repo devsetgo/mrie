@@ -39,6 +39,7 @@ from fastapi import (
     BackgroundTasks,
     Depends,
     File,
+    HTTPException,
     Path,
     Query,
     Request,
@@ -54,6 +55,7 @@ from ..functions.db_guards import is_db_error
 from ..functions.db_guards import safe_list as _safe_list
 from ..functions.db_guards import safe_record as _safe_record
 from ..functions.login_required import check_login
+from ..functions.page_fetch import normalize_link_url
 from ..functions.pagination import build_page_url
 from ..functions.youtube_helper import extract_youtube_video_id, is_youtube_url
 from ..resources import db_ops, templates
@@ -63,6 +65,7 @@ router = APIRouter()
 ERROR_404_URL = "/error/404"
 ERROR_418_URL = "/error/418"
 DEFAULT_TIMEZONE = "America/New_York"
+INVALID_URL_MESSAGE = "Link URLs must start with http:// or https://"
 
 
 # api endpoints
@@ -254,8 +257,11 @@ async def create_link(
 
     form = await request.form()
     category = form["category"]
-    url = form["url"]
+    url = normalize_link_url(form["url"])
     comment = form["comment"]
+
+    if url is None:
+        raise HTTPException(status_code=400, detail=INVALID_URL_MESSAGE)
 
     if comment == "":
         comment = None
@@ -355,7 +361,9 @@ async def view_weblink(
     )
 
 
-@router.get("/update/{pkid}")
+# POST for the same reason as /notes/ai-fix: it queues page fetches and a
+# paid OpenAI call, so a cross-site link must not be able to trigger it.
+@router.post("/update/{pkid}")
 async def edit_weblink(
     background_tasks: BackgroundTasks,
     pkid: str,
@@ -367,7 +375,7 @@ async def edit_weblink(
     )
     if existing is None:
         logger.warning(f"No weblink found with ID: {pkid}")
-        return RedirectResponse(url=ERROR_404_URL, status_code=302)
+        return RedirectResponse(url=ERROR_404_URL, status_code=303)
 
     url = existing.url
     logger.debug(f"Re-analyzing link {pkid}")
@@ -375,7 +383,7 @@ async def edit_weblink(
     # Re-analysis runs in the background; the current title/summary stay
     # until it succeeds (and stay for good if AI is unavailable).
     background_tasks.add_task(link_analysis.process_link_background, pkid=pkid, url=url)
-    return RedirectResponse(url=f"/weblinks/view/{pkid}", status_code=302)
+    return RedirectResponse(url=f"/weblinks/view/{pkid}", status_code=303)
 
 
 @router.get("/update/comment/{pkid}")
@@ -421,9 +429,11 @@ async def update_comment(
 ):
     form = await request.form()
     comment = form["comment"]
-    url = form["url"]
+    url = normalize_link_url(form["url"])
     category = form["category"]
     public = form.get("public") is not None
+    if url is None:
+        raise HTTPException(status_code=400, detail=INVALID_URL_MESSAGE)
     logger.debug(
         f"Received comment: {comment}, url: {url}, category: {category}, public: {public}"
     )

@@ -27,8 +27,10 @@
                     <a href="/notes/delete/{{ note.pkid }}" class="btn btn-danger ms-2" title="Delete"><i
                             class="fa-solid fa-trash fa-lg text-white"></i></a>
                     {% if request.session.is_admin is true %}
-                    <a href="/notes/ai-fix/{{note.pkid}}" class="btn {{ 'btn-danger' if note.ai_fix else 'btn-success' }} ms-2" title="Send to AI Fix"><i
-                            class="fa-solid fa-robot fa-lg text-white"></i></a>
+                    <form method="post" action="/notes/ai-fix/{{note.pkid}}" class="d-inline">
+                        <button type="submit" class="btn {{ 'btn-danger' if note.ai_fix else 'btn-success' }} ms-2" title="Send to AI Fix"><i
+                                class="fa-solid fa-robot fa-lg text-white"></i></button>
+                    </form>
                     {%endif%}
                 </div>
             </div>

@@ -17,6 +17,7 @@ from ..db_tables import WEBLINK_PROCESSING, WebLinks
 from ..functions import link_analysis, link_preview
 from ..functions._optional_deps import tqdm
 from ..functions.db_guards import safe_record as _safe_record
+from ..functions.page_fetch import normalize_link_url
 from ..resources import db_ops
 
 
@@ -28,7 +29,15 @@ async def read_weblinks_from_file(csv_content: str, user_identifier: str):
     data = list(csv_reader)
 
     link_pkids: list = []
+    skipped = 0
     for i in data:
+        # Only absolute http(s) URLs are stored: links are rendered as
+        # <a href>, and an imported `javascript:` URL would run script in
+        # the admin's origin when clicked.
+        url = normalize_link_url(i["url"])
+        if url is None:
+            skipped += 1
+            continue
         public = True if i["public"] == "True" else False
         new_pkid = str(uuid.uuid4())
         await db_ops.execute_one(
@@ -36,7 +45,7 @@ async def read_weblinks_from_file(csv_content: str, user_identifier: str):
                 pkid=new_pkid,
                 title=WEBLINK_PROCESSING,
                 summary=WEBLINK_PROCESSING,
-                url=i["url"],
+                url=url,
                 category=i["category"],
                 public=public,
                 user_id=user_identifier,
@@ -47,6 +56,8 @@ async def read_weblinks_from_file(csv_content: str, user_identifier: str):
         logger.debug(new_pkid)
         link_pkids.append(new_pkid)
 
+    if skipped:
+        logger.warning(f"Skipped {skipped} imported links without an http(s) URL")
     logger.debug(link_pkids)
     await ai_process_pkids(link_pkids)
     await loop_pkids_for_images(link_pkids)

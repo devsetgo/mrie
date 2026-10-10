@@ -75,16 +75,21 @@ def test_parse_page_caps_the_text():
     assert len(page.text) == page_fetch.MAX_TEXT_CHARS
 
 
+# What the fake DNS below "resolves" each allowed host to. Requests are
+# pinned to these addresses, so mock handlers see an IP in request.url.host
+# and must read the logical host from the Host header.
+FAKE_IPS = {"example.com": "93.184.216.34", "www.example.com": "93.184.216.35"}
+
+
 @pytest.fixture
 def allow_hosts(monkeypatch):
-    """Replace the DNS-based guard with a host allowlist."""
-    allowed = {"example.com", "www.example.com"}
+    """Replace the DNS lookup with a fixed host -> address table."""
 
-    def fake_is_safe(url):
-        return httpx.URL(url).host in allowed
+    def fake_resolve(url):
+        return FAKE_IPS.get(httpx.URL(url).host)
 
-    monkeypatch.setattr(page_fetch, "is_safe_public_url", fake_is_safe)
-    return allowed
+    monkeypatch.setattr(page_fetch, "resolve_public_ip", fake_resolve)
+    return set(FAKE_IPS)
 
 
 def _fetch(url, handler):
@@ -108,7 +113,7 @@ def test_fetch_page_returns_parsed_content(allow_hosts):
 
 def test_fetch_page_follows_a_safe_redirect(allow_hosts):
     def handler(request):
-        if request.url.host == "example.com":
+        if request.headers["host"] == "example.com":
             return httpx.Response(
                 301, headers={"location": "https://www.example.com/b"}
             )
@@ -130,8 +135,9 @@ def test_fetch_page_refuses_a_redirect_to_an_internal_host(allow_hosts):
         )
 
     assert _fetch("https://example.com/a", handler) is None
-    # The metadata endpoint itself was never requested.
-    assert requested == ["https://example.com/a"]
+    # The metadata endpoint itself was never requested, and the one request
+    # that was made went to the checked address, not the hostname.
+    assert requested == ["https://93.184.216.34/a"]
 
 
 def test_fetch_page_refuses_an_unsafe_starting_url(allow_hosts):
@@ -177,3 +183,68 @@ def test_fetch_page_reads_at_most_max_bytes(allow_hosts, monkeypatch):
 
     assert page.title == "Big"
     assert len(page.text) < 1000
+
+
+def test_fetch_page_connects_to_the_checked_address_not_the_hostname(allow_hosts):
+    seen = {}
+
+    def handler(request):
+        seen["url_host"] = request.url.host
+        seen["host_header"] = request.headers["host"]
+        seen["sni"] = request.extensions.get("sni_hostname")
+        return _html()
+
+    page = _fetch("https://example.com:8443/a", handler)
+
+    assert page is not None
+    assert seen == {
+        "url_host": "93.184.216.34",
+        "host_header": "example.com:8443",
+        "sni": "example.com",
+    }
+    # The caller still sees the logical URL, never the pinned one.
+    assert page.url == "https://example.com:8443/a"
+
+
+def test_resolve_public_ip_returns_the_checked_address(monkeypatch):
+    monkeypatch.setattr(
+        page_fetch.socket,
+        "getaddrinfo",
+        lambda host, port: [(0, 0, 0, "", ("93.184.216.34", 0))],
+    )
+    assert page_fetch.resolve_public_ip("https://example.com/") == "93.184.216.34"
+
+
+def test_resolve_public_ip_rejects_a_name_with_any_internal_address(monkeypatch):
+    # A name that answers with one public and one private address must be
+    # refused: the client could otherwise pick the private one.
+    monkeypatch.setattr(
+        page_fetch.socket,
+        "getaddrinfo",
+        lambda host, port: [
+            (0, 0, 0, "", ("93.184.216.34", 0)),
+            (0, 0, 0, "", ("10.0.0.5", 0)),
+        ],
+    )
+    assert page_fetch.resolve_public_ip("https://example.com/") is None
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("https://example.com/a?b=1", "https://example.com/a?b=1"),
+        ("  http://example.com  ", "http://example.com"),
+        ("HTTPS://EXAMPLE.COM", "HTTPS://EXAMPLE.COM"),
+        ("javascript:alert(1)", None),
+        ("JaVaScRiPt:alert(1)", None),
+        ("data:text/html,<script>alert(1)</script>", None),
+        ("file:///etc/passwd", None),
+        ("//example.com/protocol-relative", None),
+        ("example.com/no-scheme", None),
+        ("https://", None),
+        ("", None),
+        (None, None),
+    ],
+)
+def test_normalize_link_url_only_accepts_absolute_http_urls(raw, expected):
+    assert page_fetch.normalize_link_url(raw) == expected

@@ -11,6 +11,7 @@ from src.settings import settings
 
 from .db_init import async_db
 from .functions.db_guards import is_db_error
+from .functions.sanitize import render_markdown, sanitize_html
 
 templates = Jinja2Templates(directory="templates")
 templates.env.globals["plausible_domain"] = settings.plausible_domain
@@ -40,6 +41,24 @@ def static_version(path: str) -> int:
 
 
 templates.env.globals["static_version"] = static_version
+
+
+def safe_href(url) -> str:
+    """
+    Jinja filter for `<a href="{{ link.url | safe_href }}">`: the URL itself
+    if it's an absolute http(s) URL, else "#". Autoescaping doesn't touch a
+    `javascript:` scheme, and links stored before URLs were validated on
+    write (or edited straight in the database) could still hold one.
+    """
+    from .functions.page_fetch import normalize_link_url
+
+    return normalize_link_url(url) or "#"
+
+
+templates.env.filters["safe_href"] = safe_href
+# The only sanctioned way to emit a note body - see functions/sanitize.py.
+templates.env.filters["sanitize_html"] = sanitize_html
+templates.env.filters["render_markdown"] = render_markdown
 
 # mrie owns its own private database (Notes/Links tables included) - it's
 # no longer sharing dsg's schema. Schema is managed by Alembic (see

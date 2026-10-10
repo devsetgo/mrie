@@ -331,6 +331,14 @@ def test_ai_fix_processing(logged_in_client):
     )
     note_id = _note_id_from_redirect(create.headers["location"])
 
-    response = client.get(f"/notes/ai-fix/{note_id}", follow_redirects=False)
-    assert response.status_code == 302
+    # Not reachable by GET: a link on another site could otherwise trigger it.
+    via_get = client.get(
+        f"/notes/ai-fix/{note_id}",
+        headers={"Accept": "application/json"},
+        follow_redirects=False,
+    )
+    assert via_get.status_code == 405
+
+    response = client.post(f"/notes/ai-fix/{note_id}", follow_redirects=False)
+    assert response.status_code == 303
     assert response.headers["location"] == f"/notes/view/{note_id}"

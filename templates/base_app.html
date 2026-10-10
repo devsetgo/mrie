@@ -72,7 +72,11 @@
             <li><a class="dropdown-item" href="/users/register"><i class="fa-solid fa-mobile-screen-button fa-fw me-2"></i>Add Passkey</a></li>
             <li><hr class="dropdown-divider"></li>
             {% endif %}
-            <li><a class="dropdown-item" href="/users/logout"><i class="fa-solid fa-right-from-bracket fa-fw me-2"></i>Logout</a></li>
+            <li>
+              <form method="post" action="/users/logout">
+                <button type="submit" class="dropdown-item"><i class="fa-solid fa-right-from-bracket fa-fw me-2"></i>Logout</button>
+              </form>
+            </li>
           </ul>
         </div>
         {% else %}
