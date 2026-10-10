@@ -11,6 +11,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from src.endpoints import about, notes, users, web_links
 from src.resources import templates
+from src.settings import settings
 
 
 def create_routes(app: FastAPI) -> NoReturn:
@@ -162,6 +163,11 @@ def create_routes(app: FastAPI) -> NoReturn:
         Returns:
             Dict[str, Any]: A dictionary that represents the context of the error page.
         """
+        # A hand-typed or stale URL like /error/999 isn't a real error code -
+        # show "not found" rather than crashing with a KeyError (a 500).
+        if error_code not in ALL_HTTP_CODES:
+            error_code = 404
+
         # Create the context for the error page
         context = {
             "request": request,
@@ -180,7 +186,9 @@ def create_routes(app: FastAPI) -> NoReturn:
     config_health = {
         "enable_status_endpoint": True,
         "enable_uptime_endpoint": True,
-        "enable_heapdump_endpoint": True,
+        # Public (no login) and expensive to build - a cheap way to load the
+        # server, and it exposes memory-allocation details. Dev only.
+        "enable_heapdump_endpoint": settings.is_dev_environment,
     }
 
     app.include_router(

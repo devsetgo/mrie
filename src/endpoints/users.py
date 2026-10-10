@@ -163,7 +163,7 @@ async def dev_login(request: Request):
     request.session["is_admin"] = True
     request.session["timezone"] = admin_user.my_timezone
 
-    session_duration = timedelta(minutes=settings.max_age)
+    session_duration = timedelta(seconds=settings.max_age)
     request.session["exp"] = (datetime.now() + session_duration).timestamp()
 
     return RedirectResponse(url="/notes", status_code=303)
@@ -253,7 +253,7 @@ async def login_verify(request: Request):
     request.session["is_admin"] = True
     request.session["timezone"] = user.my_timezone
 
-    session_duration = timedelta(minutes=settings.max_age)
+    session_duration = timedelta(seconds=settings.max_age)
     request.session["exp"] = (datetime.now() + session_duration).timestamp()
 
     logger.info(f"Successful passkey login for {user.user_name}")

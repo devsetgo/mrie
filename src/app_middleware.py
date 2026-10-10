@@ -55,6 +55,24 @@ def add_middleware(app: FastAPI) -> NoReturn:  # pragma: no cover
         logger.info("Surpressing AccessLoggerMiddleware as not running with uvicorn")
 
 
+# `cookie` carries the signed session cookie - anyone holding a copy can
+# replay it as the logged-in admin until it expires, so a leaked log file
+# would otherwise be a login.
+SENSITIVE_HEADERS = frozenset({"authorization", "cookie", "x-bootstrap-token"})
+
+
+def redact_headers(header_items) -> dict:
+    """Returns the headers as a dict with credential-bearing values replaced.
+
+    Compares case-insensitively: Starlette hands headers over lowercased, so
+    an exact match against e.g. "Authorization" never fires.
+    """
+    return {
+        name: "[REDACTED]" if name.lower() in SENSITIVE_HEADERS else value
+        for name, value in header_items
+    }
+
+
 class AccessLoggerMiddleware(BaseHTTPMiddleware):  # pragma: no cover
     """
     Middleware to log all requests made to application
@@ -87,13 +105,7 @@ class AccessLoggerMiddleware(BaseHTTPMiddleware):  # pragma: no cover
         client = request.client.host
         referer = request.headers.get("referer", "No referer")
         user_id = request.session.get(self.user_identifier, "unknown guest")
-        headers = dict(request.headers.items())
-        sensitive_headers = ["Authorization"]
-
-        # Redact sensitive headers
-        for header in sensitive_headers:
-            if header in headers:
-                headers[header] = "[REDACTED]"
+        headers = redact_headers(request.headers.items())
 
         # Log the request details, but ignore favicon.ico requests
         if url.path != "/favicon.ico":
