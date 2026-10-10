@@ -17,6 +17,11 @@ Auth below.
 ## Phase 1 — Notes + Links feature build (prior session)
 
 ### Database
+
+> **Superseded 2026-10-10** — see "Move to single-server Docker + SQLite"
+> below. Postgres, the materialized view and the Alembic history described
+> here are gone; kept as a record of how it worked before.
+
 - mrie owns its own database/schema independently (`src/db_tables.py`:
   `Users`, `Notes`, `NoteMetrics`, `WebLinks`, `Categories`,
   `Notifications`, `AboutPage`, `WebAuthnCredentials`) — originated as a
@@ -132,6 +137,14 @@ Auth below.
   changes, since every optional import is guarded
   (`src/functions/_optional_deps.py` + per-module `try/except ImportError`
   patterns in `ai.py`, `link_preview.py`, `demo_data.py`, etc.).
+  *Update 2026-09-27:* the dependency-update tool that rewrites the
+  requirements files drops every comment, so the commented-out lines were
+  wiped on the 2026-09-26 bump. The optional packages (`selenium`,
+  `webdriver-manager`, `silly`, `tqdm`) now live uncommented in
+  `requirements/optional.txt` (`make install-optional`); `unsync` was
+  dropped once its only caller (dead code in `link_preview.py`) went. `openai`,
+  `nameparser` and `alembic` have since become real `prd.txt`
+  dependencies, and `granian` was dropped (uvicorn is the server).
 
 ## Phase 2 — Build fixes, security hardening, UI overhaul (this session)
 
@@ -330,7 +343,10 @@ placeholder text) via `_get_or_create_about()`, which creates the row with
 default content if none exists yet - same "provision on first read"
 pattern `_get_admin_user()` in `users.py` already uses.
 
-**Image uploads** (`POST /about/upload-image`) save to
+**Image uploads** — *superseded 2026-09-26: images now live in the
+`about_images` table and are served from `GET /about/images/{id}`, because
+filesystem uploads can't work across replicas on multi-node K3s (see
+Decisions #5). The original design, kept for history:* (`POST /about/upload-image`) save to
 `static/uploads/about/<uuid>.<ext>` on the filesystem (new directory,
 gitignored) rather than following `WebLinks.image_preview_data`'s DB-blob +
 base64-embed pattern - that pattern fits one auto-fetched preview thumbnail
@@ -426,10 +442,101 @@ and counted in a warning instead of being imported as a note.
 - `.bumpcalver/backups/` and `*:Zone.Identifier` are gitignored (the backups
   are local `bumpcalver --undo` state).
 
+## Link title/summary rework (2026-09-27)
+
+Link summaries used to be generated from the URL string alone, with the
+summary and title prompts effectively swapped: the "summary" prompt asked
+for a 3-6 word title, so summaries came back as titles. Now
+`functions/link_analysis.py` fetches the page and makes one JSON-mode call
+for both fields (`ai.get_link_analysis`):
+- `functions/page_fetch.py` pulls the title (og:title, then `<title>`),
+  description and visible text (menus, scripts and footers skipped; capped
+  at 6,000 characters). YouTube uses oEmbed metadata instead, since
+  youtube.com serves bot pages to plain HTTP clients.
+- `is_safe_public_url()` checks every hop, including each redirect. It
+  moved here from `link_preview.py` and now also guards `url_status()`.
+  The old `get_html_title()` (CSV import) fetched with no check and was
+  removed.
+- Pages that block bots (e.g. Real Python's 403) fall back to the URL, and
+  the prompt tells the model not to invent details.
+- Runs as a background task on create, re-analyze and CSV import. The row
+  holds the `WEBLINK_PROCESSING` placeholder, which now counts as missing
+  for `ai_fix`, and the view page auto-refreshes for up to a minute.
+- Titles are no longer passed through Jinja's `| title` filter, which
+  mangled names like "GitHub" and "FastAPI".
+- The old URL-only prompt also said titles "cannot contain any persons
+  name". That rule was dropped for links: it exists to protect private
+  journal entries, and public page titles legitimately name people.
+- Removed dead code: `get_url_summary`/`get_url_title`,
+  `get_youtube_summary`/`get_youtube_title`, `strip_quotation_marks`,
+  `update_weblinks`/`update_weblinks_ai`, and the `unsync` shim.
+- Existing links keep their old title-style summaries until re-analyzed
+  (the "update" action on a link).
+
+## Move to single-server Docker + SQLite (2026-10-10)
+
+Production moved off multi-node K3s + Postgres to one container on one
+server (`docker-compose.yml`, behind Traefik) with SQLite on a named
+volume. Production started from an empty database: no data was carried
+over, notes get re-imported through the CSV import.
+
+- **SQLite only.** `DatabaseDriverEnum` is `sqlite` / `memory`; the
+  asyncpg driver (`devsetgo-lib[postgres]`), `DB_USERNAME`/`DB_PASSWORD`/
+  `DB_HOST`/`DB_PORT`, the Postgres pool settings, the devcontainer's
+  `postgresdb`/`pgadmin` services and `k8s/` were removed. The file lives at
+  `DB_DIRECTORY/DB_NAME.db` (`sqlite_db/mrie.db` by default; the compose
+  volume mounts there).
+- **Performance.** `src/db_init.py` applies PRAGMAs to every new
+  connection: WAL (readers and the writer never block each other, and
+  commits append instead of rewriting pages), `synchronous=NORMAL` (safe
+  under WAL and skips an fsync per commit), `busy_timeout` 5s (the 2
+  uvicorn workers queue for the write lock instead of erroring),
+  `foreign_keys=ON`, `temp_store=MEMORY`, a 64 MiB page cache and 256 MiB
+  mmap. `PRAGMA optimize` runs on shutdown. Three indexes that could never
+  be used were dropped: `notes._summary` (encrypted bytes) and
+  `web_links.summary`/`comment` (only searched with `LIKE '%…%'`, which
+  can't use a B-tree). The dockerfile now installs dependencies before
+  copying source, so code-only rebuilds reuse the pip layer.
+- **NoteMetrics** went back to plain stored columns for its scalar
+  aggregates; `NoteMetricsScalars`, the materialized view and its refresh
+  were removed along with `tests/test_notes_metrics.py`, which only covered
+  those paths.
+- **Alembic now manages SQLite.** The three Postgres revisions were
+  replaced by one baseline, `93c7e052d8d6`, with `render_as_batch=True`.
+  The earlier blocker (dialect-specific `server_default` expressions baked
+  into Postgres migrations) doesn't apply when every revision is
+  autogenerated against SQLite. The image's `CMD` runs
+  `alembic upgrade head` before `exec`-ing uvicorn, which is safe because
+  only one container ever exists. CI migrates a scratch SQLite file and runs
+  `alembic check`. The in-memory test DB still uses `create_tables()`.
+- **Demo data** is gated on `release_env` being a dev value, since the
+  driver no longer tells production apart.
+- **Backups:** `make db-backup` snapshots the live database through
+  SQLite's online backup API into `backups/`. Copying a live WAL database
+  with `cp` can produce a torn file.
+- **Never** scale the compose service past one container or put the volume
+  on NFS/SMB: WAL relies on shared-memory locking.
+
+## About page: résumé → draft, headshot (2026-10-10)
+
+- The About editor has a "Generate from résumé" panel: upload a PDF/DOCX/TXT
+  (or paste text), pick first/third person and an optional focus, and
+  `POST /about/generate-from-resume` returns a story-style draft that
+  replaces the editor contents straight away (no confirm). Nothing is saved until
+  Save. The prompt forbids invented facts and drops phone/email/address,
+  since the page is public. The résumé text goes to OpenAI.
+- `pypdf` was added to `prd.txt` for PDF text. It's guarded like the other
+  optional imports, so without it only PDF uploads fail.
+- `about/view.html` is now two columns with the headshot on the right
+  (sticky). It's hidden below 992px, where the sidebar's copy already
+  shows.
+
 ## Decisions
 
 1. **Login mechanism**: Resolved — WebAuthn/passkey, see Phase 1.
-2. **Production DB hosting**: **Resolved — staying on Postgres.** The
+2. **Production DB hosting**: **Superseded 2026-10-10 — SQLite on a single
+   server**, see "Move to single-server Docker + SQLite". Previously:
+   **staying on Postgres.** The
    dataset (2,720 notes / 225k words / 1.18M characters, expecting ~2,000
    more) is small enough that neither Postgres nor SQLite would strain
    under it even at 5,000+ notes — this was never really a performance
@@ -455,6 +562,23 @@ and counted in a warning instead of being imported as a note.
    tests/test_resources.py).
 4. **Web framework (FastAPI vs. Robyn)**: still explicitly unresolved.
    Don't assume a direction or start a migration unprompted.
+5. **Deployment target**: **Superseded 2026-10-10 — single-server
+   Docker Compose**, see "Move to single-server Docker + SQLite".
+   Previously: **multi-node K3s**,
+   using K3s' bundled Traefik for ingress (its `letsencrypt` ACME resolver for TLS) and
+   Postgres on a separate server. The manifests and release procedure are
+   in `k8s/` (`k8s/README.md`); `docker-compose.yml` is the legacy
+   single-host setup. This drove three changes:
+   - About-page uploads moved from `static/uploads/` into Postgres
+     (`about_images`, migration `1ded2641ae6b`). A shared ReadWriteMany
+     volume (NFS from the DB server) or MinIO were the alternatives, but
+     both add infrastructure for a handful of images.
+   - uvicorn now trusts the pod CIDR's forwarded headers
+     (`FORWARDED_ALLOW_IPS`); before that, every request behind Traefik
+     looked like plain http.
+   - The dockerfile uses a numeric UID (for `runAsNonRoot`) and a
+     Python-based `HEALTHCHECK`. The old compose healthcheck called
+     `curl`, which the slim image doesn't have, so it never passed.
 
 ## Roadmap — open work, in priority order
 
@@ -489,8 +613,9 @@ and counted in a warning instead of being imported as a note.
 
 ## Environment variables (mrie's `.env`)
 
-Required to boot: `DB_USERNAME`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`,
-`DB_NAME`, `PHRASE`, `SALT`.
+Required to boot: `PHRASE`, `SALT`. Database: `DB_DRIVER` (`sqlite`, the
+default, or `memory`), `DB_DIRECTORY`, `DB_NAME`, plus optional
+`SQLITE_BUSY_TIMEOUT_MS`/`SQLITE_CACHE_SIZE_KIB`/`SQLITE_MMAP_SIZE_BYTES`.
 
 Needed for features to work: `WEBAUTHN_RP_ID`, `WEBAUTHN_RP_NAME`,
 `WEBAUTHN_ORIGIN`, `ADMIN_USER`, `REGISTRATION_BOOTSTRAP_TOKEN` (only

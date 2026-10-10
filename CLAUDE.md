@@ -18,24 +18,25 @@ deliberate, not an oversight.
 
 ```bash
 make install-dev     # pip install requirements/dev.txt (includes prd.txt)
+make install-optional  # pip install requirements/optional.txt (selenium, silly, tqdm)
 make run-dev          # uvicorn with --reload, port 5000
 make test             # pre-commit run -a && pytest -n auto --maxprocesses=8 (parallel; + coverage badge)
 make cleanup          # same as `make ruff`
 make ruff             # ruff check --fix, then ruff format, on src/ and tests/
 make cache            # clean __pycache__ / .pytest_cache
-make alembic-migrate  # alembic upgrade head (Postgres only, see Data layer below)
+make alembic-migrate  # alembic upgrade head on the SQLite file DB (see Data layer below)
+make db-backup        # consistent snapshot of the prod DB from the running container into backups/
 make alembic-rev      # alembic revision --autogenerate, prompts for a name
 make alembic-downgrade  # alembic downgrade -1
 make help             # list all targets with descriptions
 ```
 
-Local dev defaults to `DB_DRIVER=postgres` against the devcontainer's
-`postgresdb` service (`.devcontainer/docker-compose.yml`), matching
-production; the devcontainer's `postCreateCommand` runs
-`alembic upgrade head` against it automatically on container creation. Set
-`DB_DRIVER=memory` in `.env` instead for a quick, disposable in-memory
-SQLite DB (this is what the automated test suite always uses, regardless
-of `.env` — see `tests/conftest.py`).
+Local dev defaults to `DB_DRIVER=sqlite`, a file at
+`sqlite_db/mrie.db` (`DB_DIRECTORY`/`DB_NAME`), matching production; the
+devcontainer's `postCreateCommand` runs `alembic upgrade head` against it
+on container creation. Set `DB_DRIVER=memory` in `.env` instead for a
+quick, disposable in-memory DB (this is what the automated test suite
+always uses, regardless of `.env` — see `tests/conftest.py`).
 
 Run a single test directly (skips pre-commit and coverage/badge generation):
 
@@ -119,15 +120,30 @@ kind.
   task on create), CSV import (two formats — simple and dsg's full
   export, auto-detected by header), dashboard/insights.
 - `web_links.py` — bookmark CRUD, AI title/summary, Selenium screenshot
-  capture, CSV import.
+  capture, CSV import. Title/summary come from the page itself:
+  `functions/link_analysis.py` fetches it (`functions/page_fetch.py`, or
+  YouTube's oEmbed metadata for videos) and makes one JSON-mode call
+  (`ai.get_link_analysis`), as a background task, so the row holds the
+  `WEBLINK_PROCESSING` placeholder meanwhile. Every server-side fetch of a
+  user-supplied URL (page text, link status, Selenium) must go through
+  `page_fetch.is_safe_public_url()`, per redirect hop — it blocks private,
+  loopback, link-local and cluster addresses.
 - `about.py` — singleton public About page (`AboutPage` DB row, always
   read/created via `_get_or_create_about()`). `GET /about` is public;
   `GET`/`POST /about/edit` and `POST /about/upload-image` require login.
-  Uploaded images land on the filesystem (`static/uploads/about/`,
-  gitignored), not the DB-blob-plus-base64 pattern `WebLinks` uses for its
-  preview thumbnail — that pattern fits one auto-fetched image per link,
-  not a rich-text editor that can accumulate many free-form embedded images
-  over time. `about/view.html` extends `base.html` (public shell);
+  `POST /about/generate-from-resume` (login) turns an uploaded résumé
+  (`functions/resume_text.py`: PDF via `pypdf`, DOCX via stdlib zip/XML,
+  or pasted text) into a draft via `ai.get_about_from_resume()`. The model
+  returns structured JSON, which `about/generated.html` renders with
+  autoescaping, so it never emits raw HTML. The draft is loaded into the editor and only
+  stored when the user saves it.
+  Uploaded images are stored one row each in `AboutImages` and served by
+  the public `GET /about/images/{id}`; the stored HTML references that URL.
+  They are not loose files on disk, so the one SQLite file is the whole
+  site's state and a single `make db-backup` captures everything.
+  They are also not base64-inlined like `WebLinks`' preview thumbnail,
+  which would bloat `content` with every embedded image. Nothing in the app
+  may write runtime state to local disk outside the database; it all goes in SQLite. `about/view.html` extends `base.html` (public shell);
   `about/edit.html` extends `base_app.html` (admin shell) — the one place
   in the app where a single feature spans both layout roots.
 
@@ -140,32 +156,33 @@ agnostic to how the session was populated.
 ### Data layer
 - `src/db_tables.py` — SQLAlchemy models (`Users`, `Notes`, `NoteMetrics`,
   `WebLinks`, `Categories`, `Notifications`, `WebAuthnCredentials`,
-  `AboutPage`). Notes'
+  `AboutPage`, `AboutImages`). Notes'
   `_note`/`_summary` columns are Fernet-encrypted at rest
   (`src/functions/encrypt.py`, key derived from `PHRASE`/`SALT`).
 - `src/db_init.py` builds the async engine from `settings.db_driver`
-  (`DatabaseDriverEnum` in `src/settings.py`: `postgres` / `sqlite` /
-  `memory`). Schema for Postgres (dev + prod) is managed by Alembic (see
-  `alembic/`) — `alembic upgrade head`, run out-of-band (devcontainer
-  `postCreateCommand`, CI, `make alembic-migrate`, or a deploy step),
-  never on app boot. SQLite (`memory`, and the file-based driver
-  `make run-dev-workers` uses) still gets its schema from
-  `src/resources.py::startup_event()` calling `create_tables()` on boot
-  instead (idempotent — only creates missing tables) — `dsg_lib`'s
-  per-dialect `server_default` expressions mean a frozen Postgres
-  migration can't run against SQLite. `startup_event()` also seeds demo
-  data via `functions/demo_data.py` whenever the driver isn't postgres and
-  `users` is empty.
-- `NoteMetrics`'s plain scalar aggregates (`word_count`, `character_count`,
-  `note_count`, `ai_fix_count`, `total_unique_tag_count`, `mood_metric`)
-  live in a `note_metrics_scalars` Postgres materialized view instead of
-  as columns on `NoteMetrics` itself — computed directly from `notes` and
-  refreshed by `src/functions/notes_metrics.py::update_notes_metrics()`.
-  On SQLite (no materialized views) they stay ordinary stored columns.
-  The `metrics` JSON blob (rolling averages, streaks, mood-weighted means,
-  tag trends) stays a stored, Python-computed column on every dialect —
-  that logic isn't expressible as a SQL view. See `PROJECT_STATUS.md`'s
-  Database section for the full rationale.
+  (`DatabaseDriverEnum` in `src/settings.py`: `sqlite` / `memory` — SQLite
+  is the only database; Postgres support was removed, see
+  `PROJECT_STATUS.md`). A `connect` event listener applies the performance
+  PRAGMAs to every pooled connection: WAL, `synchronous=NORMAL`,
+  `busy_timeout`, `foreign_keys=ON`, in-memory temp store, a large page
+  cache and mmap (sizes in `SQLITE_*` settings). Don't remove WAL: the
+  uvicorn workers share one file, and WAL is what lets reads proceed while
+  another worker writes.
+- Schema for the SQLite file is managed by Alembic (see `alembic/`,
+  `render_as_batch=True` because SQLite can't `ALTER` most column changes)
+  — `alembic upgrade head` runs out-of-band (the Docker image's `CMD`
+  before uvicorn starts, devcontainer `postCreateCommand`, CI, or
+  `make alembic-migrate`), never from app boot, and `startup_event()`
+  refuses to start if `alembic_version` is missing. Only the `memory`
+  driver gets its schema from `create_tables()` on boot instead. Any model
+  change needs an `alembic revision --autogenerate`; CI runs
+  `alembic check` and fails if one is missing. Demo data
+  (`functions/demo_data.py`) is seeded only when `release_env` is a dev
+  value and `users` is empty — production is SQLite too, so the driver
+  can't be the gate.
+- `NoteMetrics` stores both its plain scalar aggregates (`word_count`,
+  `note_count`, …) and the Python-computed `metrics` JSON blob, recomputed
+  by `src/functions/notes_metrics.py::update_notes_metrics()`.
 - All queries go through `db_ops` (`devsetgo-lib`'s `DatabaseOperations`,
   instantiated once in `src/resources.py`). **Gotcha**:
   `db_ops.count_query(query)` wraps whatever `Select` you pass it in its
@@ -174,12 +191,16 @@ agnostic to how the session was populated.
   latter silently always returns `1`).
 
 ### Optional-dependency pattern
-`selenium`/`webdriver_manager`, `silly`, `tqdm` and `unsync` are commented
-out of `requirements/prd.txt` by default (see `PROJECT_STATUS.md` for why).
-`openai` and `nameparser` were too, but are now enabled because note AI
-analysis and person-name filtering depend on them. Every module that uses any
+`selenium`/`webdriver_manager`, `silly` and `tqdm` are pinned in
+`requirements/optional.txt`, not `prd.txt`, so neither the production image
+nor `make install-dev` installs them (`make install-optional` does). They
+used to be commented-out lines in `prd.txt`, but the dependency-update tool
+that rewrites these files drops every comment, so keep explanations here and
+in `PROJECT_STATUS.md`, never in the requirements files. `openai` and
+`nameparser` are in `prd.txt` because note AI analysis and person-name
+filtering depend on them. Every module that uses any
 of these still guards the import — `src/functions/_optional_deps.py` provides
-no-op fallbacks for `tqdm`/`unsync`; `ai.py`, `youtube_helper.py`,
+no-op fallbacks for `tqdm`; `ai.py`, `youtube_helper.py`,
 `link_preview.py`, `demo_data.py` each wrap their optional import in `try/except
 ImportError` and either no-op or raise a clear `RuntimeError` at
 *call time* (for OpenAI, `get_client()`/`require_client()` in `ai.py` build the
@@ -202,6 +223,18 @@ opt-in flag and `release_env` matching an explicit allowlist of known
 non-prod values, so a single misconfigured var can't accidentally expose
 it — see `GET /users/dev-login` in `src/endpoints/users.py` for the
 consuming side (returns 404, not a refusal, when disallowed).
+
+### Deployment
+Production is one container on one server (`docker-compose.yml`) behind
+Traefik, with the SQLite file on the `db-volume` named volume mounted at
+`/app/sqlite_db`. Never scale it past one container, and keep the volume
+on local disk: WAL needs shared-memory locking that NFS/SMB don't provide.
+The image's `CMD` runs `alembic upgrade head` then `exec`s uvicorn
+(`WEB_CONCURRENCY=2` workers sharing the file). uvicorn must trust
+Traefik's forwarded headers (`FORWARDED_ALLOW_IPS`, `*` in compose since
+port 5000 is unpublished), or `url_for()` emits `http://` asset URLs on the
+https site. Back up with `make db-backup`, which uses SQLite's online
+backup API, never a plain `cp` of a live WAL database.
 
 ### Static assets
 `src/resources.py::static_version(path)` is a Jinja global that returns a
