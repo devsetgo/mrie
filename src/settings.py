@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import os
 import secrets  # For generating secure random numbers
 from datetime import (  # A Python library used for working with dates and times
     datetime,
@@ -27,6 +28,18 @@ from . import __version__
 # unset or mistyped RELEASE_ENV (e.g. "produciton") then fails closed
 # instead of accidentally exposing something dev-only.
 _DEV_ENVIRONMENTS = {"test", "dev", "local", "development"}
+
+
+# Docker secrets are mounted as one file per secret, named after the
+# secret's target (e.g. /run/secrets/openai_key). pydantic-settings reads
+# any file here whose name matches a field name, case-insensitively and with
+# the trailing newline stripped, so docker-compose.yml only has to mount
+# `phrase`, `salt`, `openai_key`, ... - no *_FILE plumbing per field.
+# Precedence is real env vars, then .env, then these files, so a local .env
+# still wins in development. Only enabled when the directory exists:
+# pydantic-settings warns on every start about a missing one.
+_SECRETS_DIR = os.environ.get("SECRETS_DIR", "/run/secrets")
+SECRETS_DIR = _SECRETS_DIR if os.path.isdir(_SECRETS_DIR) else None
 
 
 class SameSiteEnum(str, Enum):
@@ -168,6 +181,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
+        secrets_dir=SECRETS_DIR,
         extra="allow",
     )  # Set up the configuration dictionary for the settings
 

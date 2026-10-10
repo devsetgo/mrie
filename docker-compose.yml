@@ -5,11 +5,44 @@
 # `deploy.replicas` or scale this service. SQLite locking across containers
 # on one host's volume does work, but it gains nothing here and a second
 # host can't share the file at all.
+#
+# Layout this file expects on the server. Override SHARED_CONFIG_FILE and
+# SHARED_SECRETS_DIR (in the shell, or in the server repo's .env, which
+# Compose reads for substitution) if yours differs. Everything here is
+# meant to be reused by every app on the box, so a rotated OpenAI key or a
+# changed log level is edited once:
+#
+#   /opt/docker/shared/common.env      non-secret settings common to all apps
+#                                      (LOGGING_LEVEL, LOG_RETENTION, ...);
+#                                      see common.env.sample in the app repo
+#   /opt/docker/shared/secrets/openai_key
+#   /opt/docker/shared/secrets/phrase  one file per secret, value only
+#   /opt/docker/shared/secrets/salt
+#
+# The secret files must be readable by the container user (uid 10001): a
+# plain `chmod 0444` on each file, or `chown 10001`. A trailing newline in
+# the file is stripped on read, so `echo value > openai_key` is fine.
+#
+# PHRASE and SALT derive the key that encrypts every note: they must be
+# byte-for-byte the values the notes were encrypted with, and shared apps
+# must not rotate them without re-encrypting.
 services:
   mikeryan:
-    image: mikeryan56/mikeryanie:2024-10-25-001
+    image: mikeryan56/mikeryanie:latest
+    # `latest` is a moving tag: without this, `docker compose up -d` reuses
+    # whatever image is already on the host and never picks up a new build.
+    pull_policy: always
+    # Later files override earlier ones: the app's own .env wins over the
+    # shared settings. The shared file is optional so the app still starts
+    # on a host that hasn't set it up.
     env_file:
-      - .env
+      - path: ${SHARED_CONFIG_FILE:-/opt/docker/shared/common.env}
+        required: false
+      - path: .env
+    secrets:
+      - phrase
+      - salt
+      - openai_key
     environment:
       # Pinned here, not left to .env, so the volume mount below and the
       # path the app writes to can't drift apart.
@@ -50,3 +83,15 @@ networks:
 volumes:
   db-volume:
   log-volume:
+
+# Mounted at /run/secrets/<name>, where the app reads them as settings (see
+# src/settings.py: a real env var or .env value still takes precedence, so a
+# value left in .env keeps working during the move). `file:` sources, not
+# `external: true`, because this is plain Compose, not Swarm.
+secrets:
+  phrase:
+    file: ${SHARED_SECRETS_DIR:-/opt/docker/shared/secrets}/phrase
+  salt:
+    file: ${SHARED_SECRETS_DIR:-/opt/docker/shared/secrets}/salt
+  openai_key:
+    file: ${SHARED_SECRETS_DIR:-/opt/docker/shared/secrets}/openai_key
