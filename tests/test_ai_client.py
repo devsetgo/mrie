@@ -97,10 +97,9 @@ def test_require_client_names_the_feature_and_the_reason(fake_openai, monkeypatc
     "call,feature",
     [
         (lambda: ai.get_analysis(content="An entry."), "note analysis"),
-        (lambda: ai.get_url_summary("https://example.com/page"), "URL summary"),
-        (lambda: ai.get_url_title("https://example.com/page"), "URL title"),
+        (lambda: ai.get_link_analysis("https://example.com/page"), "link analysis"),
     ],
-    ids=["get_analysis", "get_url_summary", "get_url_title"],
+    ids=["get_analysis", "get_link_analysis"],
 )
 def test_ai_entry_points_raise_a_clear_error_without_a_client(
     fake_openai, monkeypatch, call, feature

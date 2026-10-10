@@ -9,8 +9,6 @@ Functions:
     is_youtube_url(url: str) -> bool: Check if a URL is a YouTube URL.
     extract_youtube_video_id(url: str) -> str: Extract the video ID from a YouTube URL.
     get_youtube_metadata(video_id: str) -> Dict[str, str]: Get video metadata from YouTube.
-    get_youtube_summary(url: str, sentence_length: int) -> Dict[str, str]: Get AI-generated summary.
-    get_youtube_title(url: str) -> str: Get a clean title for a YouTube video.
 
 Author:
     Mike Ryan
@@ -25,11 +23,6 @@ from urllib.parse import urlparse
 from httpx import AsyncClient
 from loguru import logger
 
-from src.settings import settings
-
-from .ai import get_model_temperature, require_client, strip_quotation_marks
-
-temperature = 0.2
 DEFAULT_YOUTUBE_TITLE = "YouTube Video"
 
 
@@ -72,11 +65,9 @@ def extract_youtube_video_id(url: str) -> str:
     return ""
 
 
-# get_url_summary() and get_url_title() each independently call
-# get_youtube_metadata() for the same video/URL when a weblink is created
-# or edited (see web_links.py create_link/edit_weblink) - a short in-process
-# cache avoids doubling the oEmbed HTTP round trip for that same call pair.
-# Only successful lookups are cached, so a transient oEmbed failure doesn't
+# A short in-process cache, so re-analyzing the same video (create, then an
+# immediate "update") doesn't repeat the oEmbed HTTP round trip. Only
+# successful lookups are cached, so a transient oEmbed failure doesn't
 # get "stuck" returning the fallback for the full TTL.
 _METADATA_CACHE: dict[str, tuple[Dict[str, str], float]] = {}
 _METADATA_CACHE_TTL_SECONDS = 300
@@ -133,93 +124,3 @@ async def get_youtube_metadata(video_id: str) -> Dict[str, str]:
             "author_name": "",
             "thumbnail_url": "",
         }
-
-
-async def get_youtube_summary(url: str, sentence_length: int = 2) -> Dict[str, str]:
-    """
-    Get a summary for a YouTube video using AI with metadata from oEmbed.
-
-    Args:
-        url (str): The YouTube URL.
-        sentence_length (int, optional): The length of the summary in sentences. Defaults to 2.
-
-    Returns:
-        Dict[str, str]: A dictionary containing the summary.
-    """
-    logger.info("Starting get_youtube_summary function")
-
-    video_id = extract_youtube_video_id(url)
-    if not video_id:
-        logger.error(f"Could not extract video ID from URL: {url}")
-        return {
-            "summary": "YouTube video content - unable to extract video information"
-        }
-
-    metadata = await get_youtube_metadata(video_id)
-
-    # Create a prompt using the available metadata
-    content = f"YouTube video titled '{metadata['title']}' by {metadata['author_name']}"
-
-    prompt = f"Please create a {sentence_length} sentence summary for a YouTube video with the title '{metadata['title']}' by {metadata['author_name']}. Create an informative description about what this video likely contains based on the title and creator."
-
-    try:
-        client = require_client("YouTube summary generation")
-        chat_completion = await client.chat.completions.create(
-            model=settings.openai_model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": prompt,
-                },
-                {"role": "user", "content": content},
-            ],
-            temperature=get_model_temperature(settings.openai_model, temperature),
-        )
-
-        response_content = chat_completion.choices[0].message.content
-        logger.debug(f"YouTube summary content: {response_content}")
-
-        return {"summary": response_content}
-
-    except Exception as e:
-        logger.error(f"Error generating YouTube summary: {e}")
-        # Fallback to metadata-based summary
-        fallback_summary = (
-            f"YouTube video '{metadata['title']}' by {metadata['author_name']}"
-        )
-        return {"summary": fallback_summary}
-
-
-async def get_youtube_title(url: str) -> str:
-    """
-    Get a clean title for a YouTube video.
-
-    Args:
-        url (str): The YouTube URL.
-
-    Returns:
-        str: The cleaned video title.
-    """
-    logger.info("Starting get_youtube_title function")
-
-    video_id = extract_youtube_video_id(url)
-    if not video_id:
-        logger.error(f"Could not extract video ID from URL: {url}")
-        return DEFAULT_YOUTUBE_TITLE
-
-    metadata = await get_youtube_metadata(video_id)
-
-    # Clean up the title - remove common YouTube suffixes and prefixes
-    title = metadata["title"]
-    if title:
-        # Remove common patterns like " - YouTube", " | YouTube", etc. Anchors
-        # a single trailing \s* to "youtube$" rather than sandwiching it
-        # between two \s* groups (flagged by static analysis for super-linear
-        # backtracking risk) - the separator itself is then stripped with
-        # plain str methods instead of a second regex quantifier.
-        title = re.sub(r"(?i)youtube\s*$", "", title.rstrip())
-        title = title.rstrip().rstrip("-|").rstrip()
-        title = strip_quotation_marks(title)
-        return title[:100]  # Limit length
-
-    return DEFAULT_YOUTUBE_TITLE

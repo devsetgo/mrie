@@ -182,3 +182,15 @@ def test_failed_reanalysis_flags_the_note_notifies_and_logs_the_traceback(
     assert [n["category"] for n in notified] == ["error"]
     assert notified[0]["note_id"] == note_id
     assert any("Traceback" in line and "model unavailable" in line for line in lines)
+
+
+def test_summary_is_escaped_on_the_view_page(logged_in_client, note_id):
+    # The summary is AI output (or a hand edit), never intended markup.
+    hostile = "<img src=x onerror=alert(1)>"
+    _submit_edit(logged_in_client, note_id, summary=hostile)
+
+    page = logged_in_client.get(f"/notes/view/{note_id}")
+
+    assert page.status_code == 200
+    assert hostile not in page.text
+    assert "&lt;img src=x onerror=alert(1)&gt;" in page.text

@@ -104,7 +104,7 @@
     <div class="col-12">
         <div class="card" style="margin: 20px;">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h3 class="card-title mb-0">{{ weblink.title | title }}</h3>
+                <h3 class="card-title mb-0">{{ weblink.title }}</h3>
                 <div class="d-flex align-items-center ms-auto">
                     {% if request.session.roles and request.session.roles.web_links %}
                     <a href="/weblinks/update/comment/{{weblink.pkid}}" class="btn btn-warning ms-2" title="Edit"><i
@@ -139,12 +139,18 @@
                                 <div class="col-md-6">
                                     <div class="mb-3">
                                         <label>URL:</label>
-                                        <p><a href="{{ weblink.url }}" target="_blank">{{ weblink.title | title
-                                                }}</a></p>
+                                        <p><a href="{{ weblink.url }}" target="_blank">{{ weblink.title }}</a></p>
                                     </div>
                                     <div class="mb-3">
                                         <label>Summary:</label>
+                                        {% if weblink.summary == "Processing" %}
+                                        <p class="text-muted">
+                                            <i class="fas fa-spinner fa-spin"></i> Processing...
+                                            <small class="text-info">(reading the page)</small>
+                                        </p>
+                                        {% else %}
                                         <p>{{ weblink.summary }}</p>
+                                        {% endif %}
                                     </div>
                                 </div>
                                 <div class="col-md-6">
@@ -223,6 +229,26 @@
 
 {% block page_scripts %}
 <!-- page scripts-->
+{% if weblink.title == "Processing" or weblink.summary == "Processing" %}
+<script>
+    // Title/summary are filled in by a background task - reload until they
+    // arrive, but give up after about a minute: if AI is unavailable the
+    // placeholders stay for good, and reloading forever helps nobody.
+    (function () {
+        var key = "weblink-refresh-{{ weblink.pkid }}";
+        var count = 0;
+        try { count = parseInt(sessionStorage.getItem(key) || "0", 10); } catch (e) {}
+        if (count < 12) {
+            try { sessionStorage.setItem(key, String(count + 1)); } catch (e) {}
+            setTimeout(function () { location.reload(); }, 5000);
+        }
+    })();
+</script>
+{% else %}
+<script>
+    try { sessionStorage.removeItem("weblink-refresh-{{ weblink.pkid }}"); } catch (e) {}
+</script>
+{% endif %}
 <script>
     function openModal(img) {
         var modal = document.getElementById("myModal");

@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-Weblinks CRUD coverage. Unlike notes, create_link/edit_weblink call the AI
-functions inline (not backgrounded) with no try/except around them, and
-capture_full_page_screenshot needs a real Chrome/selenium install this test
-environment doesn't have - so both are mocked here rather than skipped, to
-keep the test deterministic, fast, and network-free (no real request should
-ever leave the test process).
+Weblinks CRUD coverage. create_link/edit_weblink hand the page fetch + AI
+call to link_analysis.process_link_background (TestClient runs background
+tasks before returning), and capture_full_page_screenshot needs a real
+Chrome/selenium install this test environment doesn't have - so both are
+mocked here rather than skipped, to keep the test deterministic, fast, and
+network-free (no real request should ever leave the test process).
 """
 
 import pytest
@@ -13,14 +13,8 @@ import pytest
 
 @pytest.fixture
 def mock_weblink_externals(monkeypatch):
-    async def fake_get_url_summary(url, temperature=None, sentence_length=1, **kwargs):
-        return {"summary": f"Mock summary for {url}"}
-
-    async def fake_get_url_title(url, temperature=0.7, sentence_length=1, **kwargs):
-        return "Mock Title"
-
-    async def fake_get_html_title(url):
-        return "Not Found"
+    async def fake_analyze_link(url):
+        return {"title": "Mock Title", "summary": f"Mock summary for {url}"}
 
     async def fake_capture_full_page_screenshot(url, pkid):
         return None
@@ -28,9 +22,7 @@ def mock_weblink_externals(monkeypatch):
     async def fake_url_status(url):
         return True
 
-    monkeypatch.setattr("src.functions.ai.get_url_summary", fake_get_url_summary)
-    monkeypatch.setattr("src.functions.ai.get_url_title", fake_get_url_title)
-    monkeypatch.setattr("src.functions.ai.get_html_title", fake_get_html_title)
+    monkeypatch.setattr("src.functions.link_analysis.analyze_link", fake_analyze_link)
     monkeypatch.setattr(
         "src.functions.link_preview.capture_full_page_screenshot",
         fake_capture_full_page_screenshot,

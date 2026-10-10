@@ -29,7 +29,6 @@ Usage:
     This module is designed to be integrated into a FastAPI application, providing a backend API for listing weblinks. It can be used in web applications that require content curation and discovery features, with the ability to filter and paginate through large sets of data.
 """
 
-import asyncio
 import html
 import uuid
 from base64 import b64encode
@@ -49,8 +48,8 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from loguru import logger
 from sqlalchemy import Select, asc, delete, func, insert, or_, update
 
-from ..db_tables import Categories, WebLinks, compute_weblink_ai_fix
-from ..functions import ai, date_functions, link_import, link_preview
+from ..db_tables import WEBLINK_PROCESSING, Categories, WebLinks
+from ..functions import date_functions, link_analysis, link_import, link_preview
 from ..functions.db_guards import is_db_error
 from ..functions.db_guards import safe_list as _safe_list
 from ..functions.db_guards import safe_record as _safe_record
@@ -263,34 +262,20 @@ async def create_link(
 
     logger.debug(f"Received category: {category} and content: {url}")
 
-    # Get summary from OpenAI - degrade to a "Processing" placeholder rather
-    # than 500ing when openai isn't installed/configured (the documented
-    # default per CLAUDE.md's optional-dependency pattern); the CSV bulk
-    # import flow already uses this same placeholder/ai_fix convention.
-    try:
-        summary, title = await asyncio.gather(
-            ai.get_url_summary(url=url, sentence_length=20), ai.get_url_title(url=url)
-        )
-        logger.debug(f"Received summary from AI: {summary}")
-    except RuntimeError as exc:
-        logger.warning(f"AI summary/title unavailable, using placeholder: {exc}")
-        summary = {"summary": "Processing"}
-        title = "Processing"
-
-    # Create the post
+    # Title/summary are filled in by process_link_background after the
+    # response goes out - fetching the page and the OpenAI call together
+    # can take several seconds. The view page auto-refreshes until then.
     new_pkid = str(uuid.uuid4())
     result = await db_ops.execute_one(
         insert(WebLinks).values(
             pkid=new_pkid,
-            title=title,
-            summary=summary["summary"],
+            title=WEBLINK_PROCESSING,
+            summary=WEBLINK_PROCESSING,
             comment=comment,
             url=url,
             user_id=user_identifier,
             category=category,
-            ai_fix=compute_weblink_ai_fix(
-                image_preview_data=None, title=title, summary=summary["summary"]
-            ),
+            ai_fix=True,
         )
     )
     if is_db_error(result):
@@ -300,7 +285,7 @@ async def create_link(
     logger.info(f"Created weblinks with ID: {new_pkid}")
 
     background_tasks.add_task(
-        link_preview.capture_full_page_screenshot, url=url, pkid=new_pkid
+        link_analysis.process_link_background, pkid=new_pkid, url=url
     )
     return RedirectResponse(url=f"/weblinks/view/{new_pkid}", status_code=303)
 
@@ -384,47 +369,12 @@ async def edit_weblink(
         logger.warning(f"No weblink found with ID: {pkid}")
         return RedirectResponse(url=ERROR_404_URL, status_code=302)
 
-    existing = existing.to_dict()
+    url = existing.url
+    logger.debug(f"Re-analyzing link {pkid}")
 
-    url = existing["url"]
-
-    logger.debug(f"Editing content for URL: {url}")
-
-    # Get summary from OpenAI - fall back to the existing title/summary
-    # rather than 500ing when openai isn't installed/configured (the
-    # documented default per CLAUDE.md's optional-dependency pattern).
-    try:
-        summary, title = await asyncio.gather(
-            ai.get_url_summary(url=url, sentence_length=20), ai.get_url_title(url=url)
-        )
-        logger.debug(f"Received summary from AI: {summary}")
-    except RuntimeError as exc:
-        logger.warning(f"AI summary/title unavailable, keeping existing: {exc}")
-        summary = {"summary": existing["summary"]}
-        title = existing["title"]
-    weblink_update = {
-        "title": title,
-        "summary": summary["summary"],
-        "ai_fix": compute_weblink_ai_fix(
-            image_preview_data=existing["image_preview_data"],
-            title=title,
-            summary=summary["summary"],
-        ),
-    }
-
-    result = await db_ops.execute_one(
-        update(WebLinks).where(WebLinks.pkid == pkid).values(**weblink_update)
-    )
-
-    if is_db_error(result):
-        logger.error(f"Error updating link: {result}")
-        return RedirectResponse(url=ERROR_418_URL, status_code=302)
-
-    logger.info(f"Updated weblinks with ID: {pkid}")
-
-    background_tasks.add_task(
-        link_preview.capture_full_page_screenshot, url=url, pkid=pkid
-    )
+    # Re-analysis runs in the background; the current title/summary stay
+    # until it succeeds (and stay for good if AI is unavailable).
+    background_tasks.add_task(link_analysis.process_link_background, pkid=pkid, url=url)
     return RedirectResponse(url=f"/weblinks/view/{pkid}", status_code=302)
 
 

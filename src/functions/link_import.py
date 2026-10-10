@@ -11,10 +11,10 @@ import io
 import uuid
 
 from loguru import logger
-from sqlalchemy import Select, insert, update
+from sqlalchemy import Select, insert
 
-from ..db_tables import WebLinks, compute_weblink_ai_fix
-from ..functions import ai, link_preview
+from ..db_tables import WEBLINK_PROCESSING, WebLinks
+from ..functions import link_analysis, link_preview
 from ..functions._optional_deps import tqdm
 from ..functions.db_guards import safe_record as _safe_record
 from ..resources import db_ops
@@ -30,25 +30,18 @@ async def read_weblinks_from_file(csv_content: str, user_identifier: str):
     link_pkids: list = []
     for i in data:
         public = True if i["public"] == "True" else False
-        title = await ai.get_html_title(i["url"])
-        if title == "Not Found":
-            title = "Processing"
         new_pkid = str(uuid.uuid4())
         await db_ops.execute_one(
             insert(WebLinks).values(
                 pkid=new_pkid,
-                title=title,
-                summary="Processing",
+                title=WEBLINK_PROCESSING,
+                summary=WEBLINK_PROCESSING,
                 url=i["url"],
                 category=i["category"],
                 public=public,
                 user_id=user_identifier,
-                # image_preview_data is always None at this point (screenshot
-                # capture happens later in loop_pkids_for_images), so this is
-                # always True - see compute_weblink_ai_fix in db_tables.py.
-                ai_fix=compute_weblink_ai_fix(
-                    image_preview_data=None, title=title, summary="Processing"
-                ),
+                # Placeholders until ai_process_pkids fills them in.
+                ai_fix=True,
             )
         )
         logger.debug(new_pkid)
@@ -61,48 +54,21 @@ async def read_weblinks_from_file(csv_content: str, user_identifier: str):
 
 async def ai_process_pkids(pkids: list):
     """
-    Process the AI for the given pkids
+    Fill in each imported link's title/summary, one at a time. Screenshots
+    come afterwards in loop_pkids_for_images.
     """
     for pkid in tqdm(pkids, desc="AI Processing links"):
         record = _safe_record(
             await db_ops.read_one_record(Select(WebLinks).where(WebLinks.pkid == pkid))
         )
-
         if record is None:
             logger.error(f"Error reading link {pkid}")
             continue
 
-        link_update = {}
-        logger.info(f"Processed link {record.pkid}")
-        try:
-            summary = await ai.get_url_summary(record.url)
-            link_update["summary"] = summary["summary"]
-
-            if record.title == "Processing":
-                link_update["title"] = await ai.get_url_title(record.url)
-        except RuntimeError as exc:
-            # AI unavailable (openai not installed/configured) - leave this
-            # link's title/summary as "Processing" and move on to the next
-            # pkid rather than aborting the rest of the batch.
-            logger.warning(f"AI summary/title unavailable for {pkid}: {exc}")
-            continue
-
-        # image_preview_data isn't touched here (screenshot capture happens
-        # afterward in loop_pkids_for_images) - recompute ai_fix from the
-        # post-update field values the same way the before_update ORM event
-        # used to, rather than hardcoding False, so a link isn't marked
-        # "fixed" before its screenshot actually exists.
-        link_update["ai_fix"] = compute_weblink_ai_fix(
-            image_preview_data=record.image_preview_data,
-            title=link_update.get("title", record.title),
-            summary=link_update["summary"],
+        # Never raises; AI unavailable leaves the placeholders and moves on.
+        await link_analysis.process_link_background(
+            pkid=pkid, url=record.url, capture_screenshot=False
         )
-
-        logger.info(link_update)
-        result = await db_ops.execute_one(
-            update(WebLinks).where(WebLinks.pkid == pkid).values(**link_update)
-        )
-        logger.debug(f"Updated link data: {result}")
 
     return {"status": "success"}
 
