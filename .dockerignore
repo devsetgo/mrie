@@ -33,6 +33,7 @@ requirements/dev.txt
 # mrie-specific local dev artifacts (see .gitignore for the full story on
 # each of these) - none of them belong in a shipped image.
 sqlite_db/
+backups/
 logs/
 static/uploads/
 

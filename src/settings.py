@@ -36,8 +36,6 @@ class SameSiteEnum(str, Enum):
 
 
 class DatabaseDriverEnum(str, Enum):
-    postgres = "postgresql+asyncpg"
-    postgresql = "postgresql+asyncpg"
     sqlite = "sqlite+aiosqlite"
     memory = "sqlite+aiosqlite:///:memory:?cache=shared"
 
@@ -46,23 +44,27 @@ class DatabaseDriverEnum(str, Enum):
 
 class Settings(BaseSettings):
     # Class that describes the settings schema
-    db_driver: DatabaseDriverEnum = Field("memory", description="DB_DRIVER")
-    db_username: SecretStr = Field(..., description="DB_USERNAME")
-    db_password: SecretStr = Field(..., description="DB_PASSWORD")
-    db_host: str = Field(..., description="DB_HOST")
-    db_port: int = Field(..., description="DB_PORT")
-    db_name: SecretStr = Field(
-        ..., description="For sqlite it should be folder path 'folder/filename"
+    db_driver: DatabaseDriverEnum = Field("sqlite", description="DB_DRIVER")
+    db_directory: str = Field(
+        "sqlite_db", description="Folder holding the SQLite file (a Docker volume)"
     )
+    db_name: str = Field("mrie", description="SQLite file name; '.db' is appended")
     phrase: SecretStr = Field(..., description="substitution cipher")
     salt: SecretStr = Field(..., description="salt for key derivation")
     echo: bool = Field(True, description="Enable echo")
     future: bool = Field(True, description="Enable future")
-    pool_pre_ping: bool = Field(False, description="Enable pool_pre_ping")
-    pool_size: Optional[int] = Field(None, description="Set pool_size")
-    max_overflow: Optional[int] = Field(None, description="Set max_overflow")
     pool_recycle: int = Field(3600, description="Set pool_recycle")
-    pool_timeout: Optional[int] = Field(None, description="Set pool_timeout")
+    # SQLite tuning, applied to every new connection (see db_init.py).
+    # busy_timeout: how long a writer waits on another process's write lock
+    # before raising "database is locked" - with WEB_CONCURRENCY > 1 the
+    # workers share one file, and writes are serialized across them.
+    sqlite_busy_timeout_ms: int = 5000
+    # Negative = KiB, per connection. 64 MiB keeps the whole working set of a
+    # single-user journal in memory without re-reading pages from disk.
+    sqlite_cache_size_kib: int = 65536
+    # Memory-mapped reads skip a syscall + copy per page. 256 MiB is an upper
+    # bound, not an allocation - only the file's actual size gets mapped.
+    sqlite_mmap_size_bytes: int = 268435456
 
     # Set the current date and time when the application is run
     date_run: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -86,17 +88,13 @@ class Settings(BaseSettings):
         return self.dev_fake_login_enabled and self.is_dev_environment
 
     @property
-    def is_postgres(self) -> bool:
-        """True when db_driver resolves to a Postgres connection string.
+    def is_memory_db(self) -> bool:
+        """True for the throwaway in-memory database the test suite uses.
 
-        Single source of truth for the Postgres-vs-SQLite branching that
-        db_tables.py (NoteMetrics/NoteMetricsScalars schema split),
-        resources.py (startup_event()'s create_tables()/migration-check
-        gating), and notes_metrics.py (materialized-view refresh) all need
-        to agree on identically - previously each re-derived
-        `db_driver.startswith("postgres")` independently.
+        Its schema comes from create_tables() on boot; a file database's
+        comes from Alembic (see resources.py::startup_event()).
         """
-        return self.db_driver.startswith("postgres")
+        return self.db_driver == DatabaseDriverEnum.memory
 
     # logging settings
     logging_directory: str = "log"

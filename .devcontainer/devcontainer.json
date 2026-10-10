@@ -1,5 +1,5 @@
 // For format details, see https://aka.ms/devcontainer.json. For config options, see the
-// README at: https://github.com/devcontainers/templates/tree/main/src/postgres
+// README at: https://github.com/devcontainers/templates/tree/main/src/python
 {
 	"name": "MikeRyan.ie",
 	"dockerComposeFile": "docker-compose.yml",
@@ -13,7 +13,6 @@
 	],
 	"forwardPorts": [
 		5000,
-		5432,
 		32080
 	],
 	"postCreateCommand": "pip3 install --upgrade pip setuptools wheel && pip3 install -r requirements/dev.txt && sudo chmod 666 /var/run/docker.sock && alembic upgrade head",
