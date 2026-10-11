@@ -24,8 +24,9 @@ def test_startup_event_raises_when_sqlite_migrations_missing(monkeypatch):
 
     monkeypatch.setattr(resources.db_ops, "execute_one", fake_execute_one)
 
+    coroutine = resources.startup_event()
     with pytest.raises(RuntimeError, match="has not been migrated"):
-        asyncio.run(resources.startup_event())
+        asyncio.run(coroutine)
 
 
 def test_startup_event_passes_when_sqlite_migrations_present(monkeypatch):

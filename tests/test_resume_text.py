@@ -82,13 +82,15 @@ def test_pdf_is_detected_by_signature_not_extension():
 
 def test_pdf_without_pypdf_gives_a_clear_error(monkeypatch):
     monkeypatch.setattr(resume_text, "PdfReader", None)
+    data = _pdf("x")
     with pytest.raises(ResumeReadError, match="pypdf"):
-        extract_resume_text("cv.pdf", _pdf("x"))
+        extract_resume_text("cv.pdf", data)
 
 
 def test_pdf_with_no_text_is_rejected():
+    data = _pdf("")
     with pytest.raises(ResumeReadError, match="No text"):
-        extract_resume_text("cv.pdf", _pdf(""))
+        extract_resume_text("cv.pdf", data)
 
 
 @pytest.mark.parametrize(
@@ -117,8 +119,9 @@ def test_unsupported_type_is_rejected():
 
 def test_oversized_docx_xml_is_refused(monkeypatch):
     monkeypatch.setattr(resume_text, "_MAX_DOCX_XML_BYTES", 10)
+    data = _docx()
     with pytest.raises(ResumeReadError, match="too large"):
-        extract_resume_text("cv.docx", _docx())
+        extract_resume_text("cv.docx", data)
 
 
 def test_text_is_capped():

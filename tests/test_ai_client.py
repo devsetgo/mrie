@@ -107,8 +107,9 @@ def test_ai_entry_points_raise_a_clear_error_without_a_client(
     # Not an AttributeError from calling into `None`.
     monkeypatch.setattr(ai.settings, "openai_key", None)
 
+    coroutine = call()
     with pytest.raises(RuntimeError, match=f"{feature}.*disabled.*OPENAI_KEY"):
-        asyncio.run(call())
+        asyncio.run(coroutine)
 
 
 def test_shape_about_content_coerces_bad_model_output():

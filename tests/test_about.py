@@ -298,8 +298,11 @@ def test_about_row_creation_failure_is_reported(monkeypatch):
     monkeypatch.setattr(about.db_ops, "read_one_record", no_row)
     monkeypatch.setattr(about.db_ops, "execute_one", failing_insert)
 
+    # Build the coroutine outside the block so only one call can raise
+    # inside it (Sonar S5778).
+    coroutine = about._get_or_create_about()
     with pytest.raises(RuntimeError, match="Failed to create the About page row"):
-        asyncio.run(about._get_or_create_about())
+        asyncio.run(coroutine)
 
 
 def test_upload_reports_a_database_failure_as_500(logged_in_client, monkeypatch):
