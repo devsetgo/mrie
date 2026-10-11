@@ -94,9 +94,20 @@ async def loop_pkids_for_images(pkids: list):
         )
         if isinstance(data, dict):
             logger.error(f"Error creating link: {data}")
-        else:
+            continue
+        try:
             await link_preview.capture_full_page_screenshot(
                 url=data.url, pkid=data.pkid
             )
+        except RuntimeError as exc:
+            # selenium isn't installed (requirements/optional.txt): every
+            # remaining link would fail the same way, so say so once.
+            logger.warning(f"Screenshots skipped for this import: {exc}")
+            break
+        except ValueError as exc:
+            # Unsafe URL, refused - the rest of the batch is unaffected.
+            logger.info(f"Screenshot skipped for {data.pkid}: {exc}")
+        except Exception:
+            logger.exception(f"Screenshot failed for {data.pkid}")
 
     return {"status": "success"}

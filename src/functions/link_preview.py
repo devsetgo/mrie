@@ -34,7 +34,10 @@ async def url_status(url: str) -> bool:
         url (str): The URL to check.
 
     Returns:
-        bool: True if the URL is not reachable (i.e., status code is not 2xx or 3xx), False otherwise.
+        bool: True if the URL answered with a non-error status (below 400,
+        redirects included). False for an error status, a timeout/DNS/
+        connection failure, or a URL that mustn't be fetched at all - the
+        view page shows "Link Working" only for True.
     """
 
     # Same SSRF guard as page fetching and screenshots - this runs on every
@@ -48,11 +51,15 @@ async def url_status(url: str) -> bool:
         # Connect to the address that was just checked (see pinned_request).
         request_url, headers, extensions = pinned_request(url, ip)
         response = await client.get(request_url, headers=headers, extensions=extensions)
-        if response.status_code < 400:
-            return True
+        return response.status_code < 400
+    except Exception as exc:
+        # Timeout, DNS failure, refused connection, TLS error - the link
+        # isn't working. This used to return True, so a dead host showed
+        # the green "Link Working" check. Deliberately broad: this is a
+        # best-effort probe run while rendering a page, so nothing it
+        # raises may take the page down with it.
+        logger.info(f"Link status check failed for {url}: {exc!r}")
         return False
-    except Exception:
-        return True
 
 
 async def save_preview_image(pkid: str, image: bytes):

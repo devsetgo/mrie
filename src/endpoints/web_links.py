@@ -32,7 +32,6 @@ Usage:
 import html
 import uuid
 from base64 import b64encode
-from datetime import datetime
 
 from fastapi import (
     APIRouter,
@@ -139,8 +138,8 @@ async def read_weblinks_pagination(
     start_date: str = Query(None, description="Start date"),
     end_date: str = Query(None, description="End date"),
     category: str = Query(None, description="Category"),
-    page: int = Query(1, description="Page number"),
-    limit: int = Query(12, description="Number of weblinks per page"),
+    page: int = Query(1, ge=1, description="Page number"),
+    limit: int = Query(12, ge=1, le=500, description="Number of weblinks per page"),
     user_info: dict = Depends(check_login),
 ):
     query_params = {
@@ -167,11 +166,15 @@ async def read_weblinks_pagination(
     )
 
     # filter by date range
-    if start_date and end_date:
-        start_date = datetime.strptime(start_date, "%Y-%m-%d")
-        end_date = datetime.strptime(end_date, "%Y-%m-%d")
+    if start_date or end_date:
+        try:
+            start_dt, end_dt = date_functions.filter_date_range(start_date, end_date)
+        except ValueError:
+            raise HTTPException(
+                status_code=400, detail="Dates must be in YYYY-MM-DD format"
+            ) from None
         query = query.where(
-            (WebLinks.date_created >= start_date) & (WebLinks.date_created <= end_date)
+            (WebLinks.date_created >= start_dt) & (WebLinks.date_created < end_dt)
         )
     if category:
         query = query.where(WebLinks.category == category)
@@ -428,12 +431,25 @@ async def update_comment(
     user_info: dict = Depends(check_login),
 ):
     form = await request.form()
+    # A missing field is the client's mistake: 400, not a KeyError -> 500.
+    if any(field not in form for field in ("comment", "url", "category")):
+        raise HTTPException(
+            status_code=400, detail="comment, url and category are required"
+        )
     comment = form["comment"]
     url = normalize_link_url(form["url"])
     category = form["category"]
     public = form.get("public") is not None
     if url is None:
         raise HTTPException(status_code=400, detail=INVALID_URL_MESSAGE)
+
+    existing = _safe_record(
+        await db_ops.read_one_record(Select(WebLinks).where(WebLinks.pkid == pkid))
+    )
+    if existing is None:
+        logger.warning(f"No weblink found with ID: {pkid}")
+        return RedirectResponse(url=ERROR_404_URL, status_code=303)
+    url_changed = existing.url != url
     logger.debug(
         f"Received comment: {comment}, url: {url}, category: {category}, public: {public}"
     )
@@ -454,9 +470,14 @@ async def update_comment(
         return RedirectResponse(url=ERROR_418_URL, status_code=303)
 
     logger.info(f"Updated weblinks with ID: {pkid}")
-    background_tasks.add_task(
-        link_preview.capture_full_page_screenshot, url=url, pkid=pkid
-    )
+    if url_changed:
+        # The stored title, summary and preview describe the old page. Only
+        # a new URL needs this: a comment/category edit leaves them valid.
+        # process_link_background never raises and tolerates a missing
+        # selenium, unlike scheduling the screenshot directly.
+        background_tasks.add_task(
+            link_analysis.process_link_background, pkid=pkid, url=url
+        )
     return RedirectResponse(url=f"/weblinks/view/{pkid}", status_code=303)
 
 
