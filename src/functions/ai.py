@@ -592,9 +592,13 @@ async def get_link_analysis(url: str, page=None) -> Dict[str, str]:
 
     parts = [f"URL: {url}"]
     if page is not None and not page.is_empty:
-        parts.append(f"Page title: {page.title or '(none)'}")
-        parts.append(f"Description: {page.description or '(none)'}")
-        parts.append(f"Page text:\n{page.text or '(none)'}")
+        parts.extend(
+            [
+                f"Page title: {page.title or '(none)'}",
+                f"Description: {page.description or '(none)'}",
+                f"Page text:\n{page.text or '(none)'}",
+            ]
+        )
     else:
         parts.append("Page content: unavailable (the page could not be fetched)")
 

@@ -88,7 +88,8 @@ def test_render_markdown_escapes_raw_html_and_blocks_script_links():
 
 def test_render_markdown_supports_tables():
     rendered = str(sanitize.render_markdown("|a|b|\n|-|-|\n|1|2|\n"))
-    assert "<table>" in rendered and "<td>1</td>" in rendered
+    assert "<table>" in rendered
+    assert "<td>1</td>" in rendered
 
 
 def test_filters_fail_closed_without_the_optional_packages(monkeypatch):
@@ -109,7 +110,8 @@ def test_note_view_templates_never_emit_a_hostile_body(template):
     )
     _assert_neutral(page)
     # The markdown view no longer ships a CDN script or a hidden textarea.
-    assert "<textarea" not in page and "marked" not in page
+    assert "<textarea" not in page
+    assert "marked" not in page
 
 
 def test_delete_page_sanitizes_the_note_body():

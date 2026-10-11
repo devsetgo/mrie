@@ -131,7 +131,10 @@ async def get_categories(user_info: dict = Depends(check_login)):
     return cat_list
 
 
-@router.get("/pagination")
+@router.get(
+    "/pagination",
+    responses={400: {"description": "start_date or end_date is not YYYY-MM-DD"}},
+)
 async def read_weblinks_pagination(
     request: Request,
     search_term: str = Query(None, description="Search term"),
@@ -254,7 +257,10 @@ async def new_link(request: Request, user_info: dict = Depends(check_login)):
     )
 
 
-@router.post("/new")
+@router.post(
+    "/new",
+    responses={400: {"description": "The URL is not an absolute http(s) URL"}},
+)
 async def create_link(
     background_tasks: BackgroundTasks,
     request: Request,
@@ -441,7 +447,12 @@ async def get_update_comment(
     )
 
 
-@router.post("/update/comment/{pkid}")
+@router.post(
+    "/update/comment/{pkid}",
+    responses={
+        400: {"description": "A required field is missing or the URL is not http(s)"}
+    },
+)
 async def update_comment(
     background_tasks: BackgroundTasks,
     pkid: str,

@@ -41,7 +41,8 @@ def test_history_window_crosses_a_month_end():
     days = history_month_days(datetime(2024, 12, 30), 7)
     assert len(days) == 15
     assert days[0] == "12-23"
-    assert "12-31" in days and "01-01" in days
+    assert "12-31" in days
+    assert "01-01" in days
     assert days[-1] == "01-06"
 
 

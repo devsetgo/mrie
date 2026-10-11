@@ -713,7 +713,8 @@ def _apply_notes_filters(
 
     Tags match case-insensitively as exact elements of the stored JSON array
     (OR across the tags given). The date range is inclusive of the end date
-    (see date_functions.filter_date_range); a malformed date raises a 400.
+    (see date_functions.filter_date_range). A malformed date raises
+    ValueError, which the route turns into a 400.
     """
     # Tag filter: OR logic, case-insensitive exact match within the JSON array.
     # func.lower() on both sides handles mixed-case stored tags (e.g. "Valerie" matches "valerie").
@@ -736,12 +737,7 @@ def _apply_notes_filters(
         query = query.where(Notes.mood == mood.lower())
 
     if start_date or end_date:
-        try:
-            start_dt, end_dt = date_functions.filter_date_range(start_date, end_date)
-        except ValueError:
-            raise HTTPException(
-                status_code=400, detail="Dates must be in YYYY-MM-DD format"
-            ) from None
+        start_dt, end_dt = date_functions.filter_date_range(start_date, end_date)
         query = query.where(
             (Notes.date_created >= start_dt) & (Notes.date_created < end_dt)
         )
@@ -802,7 +798,10 @@ def _build_pagination_url(
     return build_page_url("/notes/pagination", page, params)
 
 
-@router.get("/pagination")
+@router.get(
+    "/pagination",
+    responses={400: {"description": "start_date or end_date is not YYYY-MM-DD"}},
+)
 async def read_notes_pagination(
     request: Request,
     search_term: str = Query(
@@ -833,7 +832,13 @@ async def read_notes_pagination(
 
     # Base SQL query — mood, dates, and tags are filterable at the DB level
     query = Select(Notes).where(Notes.user_id == user_identifier)
-    query = _apply_notes_filters(query, tags, mood, start_date, end_date)
+    try:
+        query = _apply_notes_filters(query, tags, mood, start_date, end_date)
+    except ValueError:
+        # filter_date_range: a start/end date that isn't YYYY-MM-DD.
+        raise HTTPException(
+            status_code=400, detail="Dates must be in YYYY-MM-DD format"
+        ) from None
     query = query.order_by(Notes.date_created.desc())
 
     offset = (page - 1) * limit

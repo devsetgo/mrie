@@ -229,6 +229,35 @@ def parse_page(html: str, url: str) -> PageContent:
     )
 
 
+async def _page_from_response(
+    response: httpx.Response, current: str
+) -> Optional[PageContent]:
+    """
+    Turns the final (non-redirect) response of a fetch into a PageContent,
+    or None for an error status or a non-HTML body. The body is read at most
+    MAX_BYTES, so a huge page costs a bounded amount of memory.
+    """
+    if response.status_code >= 400:
+        logger.info(f"Fetch of {current} returned {response.status_code}")
+        return None
+
+    content_type = response.headers.get("content-type", "")
+    if "html" not in content_type.lower():
+        logger.info(f"Not fetching non-HTML {content_type!r} at {current}")
+        return None
+
+    body = bytearray()
+    async for chunk in response.aiter_bytes():
+        body.extend(chunk)
+        if len(body) >= MAX_BYTES:
+            break
+
+    html = bytes(body[:MAX_BYTES]).decode(
+        response.encoding or "utf-8", errors="replace"
+    )
+    return parse_page(html, url=current)
+
+
 async def fetch_page(
     url: str, transport: Optional[httpx.AsyncBaseTransport] = None
 ) -> Optional[PageContent]:
@@ -268,29 +297,7 @@ async def fetch_page(
                         current = str(httpx.URL(current).join(location))
                         continue
 
-                    if response.status_code >= 400:
-                        logger.info(
-                            f"Fetch of {current} returned {response.status_code}"
-                        )
-                        return None
-
-                    content_type = response.headers.get("content-type", "")
-                    if "html" not in content_type.lower():
-                        logger.info(
-                            f"Not fetching non-HTML {content_type!r} at {current}"
-                        )
-                        return None
-
-                    body = bytearray()
-                    async for chunk in response.aiter_bytes():
-                        body.extend(chunk)
-                        if len(body) >= MAX_BYTES:
-                            break
-
-                    html = bytes(body[:MAX_BYTES]).decode(
-                        response.encoding or "utf-8", errors="replace"
-                    )
-                    return parse_page(html, url=current)
+                    return await _page_from_response(response, current)
 
             logger.info(f"Too many redirects fetching {url}")
             return None
