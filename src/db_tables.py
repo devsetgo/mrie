@@ -374,9 +374,9 @@ class AboutPage(schema_base, async_db.Base):
 
 
 class AboutImages(schema_base, async_db.Base):
-    # Stored in the DB rather than on disk so every app replica can serve
-    # every image without a shared ReadWriteMany volume across cluster
-    # nodes - see src/endpoints/about.py's module docstring.
+    # Stored in the DB rather than on disk so the one SQLite file is the
+    # whole site's state and a single backup captures the images too - see
+    # src/endpoints/about.py's module docstring.
     __tablename__ = "about_images"
     __tableargs__ = {"comment": "Images uploaded via the About page editor"}
 

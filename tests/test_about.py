@@ -278,3 +278,49 @@ def test_generate_requires_login(client):
 
 def test_about_page_shows_headshot(client):
     assert "img/headshot_2.jpg" in client.get("/about").text.split("about-photo")[-1]
+
+
+def test_about_row_creation_failure_is_reported(monkeypatch):
+    import asyncio
+
+    from dsg_lib.async_database_functions.database_operations import (
+        DatabaseErrorResult,
+    )
+
+    from src.endpoints import about
+
+    async def no_row(query):
+        return None
+
+    async def failing_insert(query):
+        return DatabaseErrorResult({"error": "disk full"})
+
+    monkeypatch.setattr(about.db_ops, "read_one_record", no_row)
+    monkeypatch.setattr(about.db_ops, "execute_one", failing_insert)
+
+    with pytest.raises(RuntimeError, match="Failed to create the About page row"):
+        asyncio.run(about._get_or_create_about())
+
+
+def test_upload_reports_a_database_failure_as_500(logged_in_client, monkeypatch):
+    from dsg_lib.async_database_functions.database_operations import (
+        DatabaseErrorResult,
+    )
+
+    from src.endpoints import about
+
+    async def failing_insert(query):
+        return DatabaseErrorResult({"error": "disk full"})
+
+    monkeypatch.setattr(about.db_ops, "execute_one", failing_insert)
+
+    response = logged_in_client.post(
+        "/about/upload-image",
+        files={"fileToUpload": ("a.png", _TINY_PNG, "image/png")},
+    )
+
+    assert response.status_code == 500
+    body = response.json()
+    assert body["success"] is False
+    # The database's own message is logged, never sent to the browser.
+    assert "disk full" not in response.text

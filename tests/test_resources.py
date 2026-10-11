@@ -63,3 +63,55 @@ def test_shutdown_event_runs_pragma_optimize_on_file_db(monkeypatch):
     asyncio.run(resources.shutdown_event())
 
     assert calls == ["PRAGMA optimize", "disconnect"]
+
+
+# --- SQLite connection tuning (src/db_init.py) -------------------------------
+
+
+def _pragma(conn, name):
+    return conn.execute(f"PRAGMA {name}").fetchone()[0]
+
+
+def test_file_database_connections_get_the_performance_pragmas(monkeypatch, tmp_path):
+    # The suite runs on the in-memory driver, which skips the file-only
+    # branch (WAL, mmap), so drive the connect hook against a real file.
+    import sqlite3
+
+    from src import db_init
+
+    monkeypatch.setattr(db_init, "db_path", str(tmp_path / "t.db"))
+    monkeypatch.setattr(db_init.settings, "sqlite_busy_timeout_ms", 1234)
+    monkeypatch.setattr(db_init.settings, "sqlite_cache_size_kib", 2048)
+    monkeypatch.setattr(db_init.settings, "sqlite_mmap_size_bytes", 1048576)
+
+    conn = sqlite3.connect(str(tmp_path / "t.db"))
+    try:
+        db_init._set_sqlite_pragmas(conn, None)
+
+        assert _pragma(conn, "journal_mode") == "wal"
+        assert _pragma(conn, "synchronous") == 1  # NORMAL
+        assert _pragma(conn, "foreign_keys") == 1
+        assert _pragma(conn, "busy_timeout") == 1234
+        assert _pragma(conn, "temp_store") == 2  # MEMORY
+        assert _pragma(conn, "cache_size") == -2048
+        assert _pragma(conn, "mmap_size") == 1048576
+    finally:
+        conn.close()
+
+
+def test_in_memory_connections_skip_wal_and_mmap(monkeypatch):
+    # WAL can't apply to :memory:, and enabling it there is an error path
+    # nobody wants; the other pragmas still apply.
+    import sqlite3
+
+    from src import db_init
+
+    monkeypatch.setattr(db_init, "db_path", None)
+    conn = sqlite3.connect(":memory:")
+    try:
+        db_init._set_sqlite_pragmas(conn, None)
+
+        assert _pragma(conn, "journal_mode") == "memory"
+        assert _pragma(conn, "foreign_keys") == 1
+    finally:
+        conn.close()

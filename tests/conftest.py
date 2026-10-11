@@ -8,7 +8,7 @@ import os
 # .env file, so setting these here guarantees the entire test session runs
 # against a private in-memory SQLite database and the dev-login bypass - no
 # matter what a developer's own .env happens to have configured (e.g.
-# DB_DRIVER=sqlite for `make run-dev-workers`, or a real Postgres URL).
+# DB_DRIVER=sqlite pointing at the real dev database file).
 # Tests must never be able to reach a real/shared database.
 os.environ["DB_DRIVER"] = "memory"
 os.environ["RELEASE_ENV"] = "test"
