@@ -41,6 +41,7 @@ from sqlalchemy import Select, insert, update
 from ..db_tables import Notes, compute_note_derived_fields
 from ..functions import ai, notes_metrics
 from ..functions._optional_deps import async_tqdm, tqdm
+from ..functions.db_guards import is_db_error
 from ..functions.db_guards import safe_record as _safe_record
 from ..functions.encrypt import encrypt_text
 from ..resources import db_ops
@@ -186,7 +187,13 @@ async def read_notes_from_file(csv_file, user_id: str):
     for c in tqdm(csv_file, desc="Importing notes", total=note_count):
         count += 1
         # Parse the date created
-        date_created = parse_date(c["date_created"])
+        # Same fallback as the export format below: a blank or unparseable
+        # date must not become date_created=None, which would override the
+        # column default and store a dateless (or, with NOT NULL, rejected)
+        # note.
+        date_created = parse_date(c["date_created"]) or datetime.now(
+            timezone.utc
+        ).replace(tzinfo=None)
         mood = c["mood"]
         logger.info(f"Processing note {count} for {date_created}")
         # If the mood is not one of the expected values, set it to "processing"
@@ -215,7 +222,7 @@ async def read_notes_from_file(csv_file, user_id: str):
             tags=analysis["tags"]["tags"],
         )
         derived["ai_fix"] = True
-        await db_ops.execute_one(
+        insert_result = await db_ops.execute_one(
             insert(Notes).values(
                 pkid=new_pkid,
                 mood=mood,
@@ -229,6 +236,11 @@ async def read_notes_from_file(csv_file, user_id: str):
                 **derived,
             )
         )
+        if is_db_error(insert_result):
+            # Don't queue AI for a row that was never stored: process_note()
+            # would read it back as None and fail on every such row.
+            logger.error(f"Error importing note {count}: {insert_result}")
+            continue
         logger.info(f"Created note with ID: {new_pkid}")
         # Add the ID of the note to the list of IDs for AI processing
         ai_ids.append(new_pkid)

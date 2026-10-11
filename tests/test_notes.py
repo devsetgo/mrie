@@ -8,7 +8,7 @@ background task itself (see src/endpoints/notes.py) and turned into a safe
 ai_fix=True update, so no mocking is required here for notes.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 
 def _note_id_from_redirect(location: str) -> str:
@@ -231,12 +231,12 @@ def test_notes_pagination_with_date_range_filter(logged_in_client):
     )
     assert edit.status_code == 303
 
-    # end_date is parsed as midnight of that day, so it must be tomorrow (not
-    # today) to include a note created earlier today at some later time.
-    tomorrow = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
+    # end_date is inclusive: a note created earlier today is in range when
+    # today is the chosen last day.
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     within_range = client.get(
         "/notes/pagination",
-        params={"start_date": "2000-01-01", "end_date": tomorrow},
+        params={"start_date": "2000-01-01", "end_date": today},
     )
     assert within_range.status_code == 200
     assert unique_summary in within_range.text

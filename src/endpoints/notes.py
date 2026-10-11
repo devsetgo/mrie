@@ -47,13 +47,14 @@ import io
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import (
     APIRouter,
     BackgroundTasks,
     Depends,
     File,
+    HTTPException,
     Path,
     Query,
     Request,
@@ -65,11 +66,9 @@ from sqlalchemy import (
     Select,
     Text,
     and_,
-    between,
     cast,
     delete,
     desc,
-    extract,
     func,
     insert,
     or_,
@@ -724,18 +723,14 @@ def _apply_notes_filters(
         query = query.where(Notes.mood == mood.lower())
 
     if start_date or end_date:
-        start_dt = (
-            datetime.strptime(start_date, "%Y-%m-%d")
-            if start_date
-            else datetime(2011, 1, 1)
-        )
-        end_dt = (
-            datetime.strptime(end_date, "%Y-%m-%d")
-            if end_date
-            else datetime.now(timezone.utc) + timedelta(days=2)
-        )
+        try:
+            start_dt, end_dt = date_functions.filter_date_range(start_date, end_date)
+        except ValueError:
+            raise HTTPException(
+                status_code=400, detail="Dates must be in YYYY-MM-DD format"
+            ) from None
         query = query.where(
-            (Notes.date_created >= start_dt) & (Notes.date_created <= end_dt)
+            (Notes.date_created >= start_dt) & (Notes.date_created < end_dt)
         )
 
     return query
@@ -804,8 +799,8 @@ async def read_notes_pagination(
     end_date: str = Query(None, description="End date"),
     mood: str = Query(None, description="Mood"),
     tags: list[str] = Query(default=[], description="Tags to filter by (OR logic)"),
-    page: int = Query(1, description="Page number"),
-    limit: int = Query(20, description="Number of notes per page"),
+    page: int = Query(1, ge=1, description="Page number"),
+    limit: int = Query(20, ge=1, le=500, description="Number of notes per page"),
     user_info: dict = Depends(check_login),
 ):
     user_identifier = user_info["user_identifier"]
@@ -868,6 +863,22 @@ async def read_notes_pagination(
     )
 
 
+def history_month_days(today: datetime, days_either_side: int) -> list[str]:
+    """
+    The "MM-DD" strings for every day from `days_either_side` before `today`
+    to `days_either_side` after it.
+
+    The window is built from real dates, so it crosses month and year ends
+    correctly. Comparing `month == start.month AND day BETWEEN start.day AND
+    end.day` doesn't: on Dec 30 with a 7-day range that is
+    `day BETWEEN 23 AND 6`, which matches nothing.
+    """
+    return [
+        (today + timedelta(days=offset)).strftime("%m-%d")
+        for offset in range(-days_either_side, days_either_side + 1)
+    ]
+
+
 # today in history notes list
 @router.get("/today")
 async def read_today_notes(
@@ -881,35 +892,20 @@ async def read_today_notes(
         logger.debug(USER_IDENTIFIER_NONE_MSG)
         return RedirectResponse(url=USERS_LOGIN_URL, status_code=302)
 
-    # get today's date
-    today = datetime.now(timezone.utc)
-
-    # calculate the dates for 7 days before and after today
-    start_date = today - timedelta(days=settings.history_range)
-    end_date = today + timedelta(days=settings.history_range)
+    # "Today" is the user's calendar day, not UTC's: late in the evening in
+    # New York the UTC date is already tomorrow.
+    try:
+        today = datetime.now(ZoneInfo(user_timezone or settings.default_timezone))
+    except ZoneInfoNotFoundError, ValueError:
+        today = datetime.now(timezone.utc)
 
     query = (
         Select(Notes)
         .where(
             and_(
                 Notes.user_id == user_identifier,
-                or_(
-                    and_(
-                        extract("month", Notes.date_created) == start_date.month,
-                        between(
-                            extract("day", Notes.date_created),
-                            start_date.day,
-                            end_date.day,
-                        ),
-                    ),
-                    and_(
-                        extract("month", Notes.date_created) == end_date.month,
-                        between(
-                            extract("day", Notes.date_created),
-                            start_date.day,
-                            end_date.day,
-                        ),
-                    ),
+                func.strftime("%m-%d", Notes.date_created).in_(
+                    history_month_days(today, settings.history_range)
                 ),
             )
         )
