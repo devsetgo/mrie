@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """sqlite baseline
 
 Revision ID: 93c7e052d8d6
