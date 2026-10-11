@@ -139,6 +139,13 @@ async def upload_about_image(
     file_to_upload: UploadFile = File(..., alias="fileToUpload"),
     user_info: dict = Depends(check_login),
 ):
+    """
+    Stores an image uploaded from the About editor and returns its public URL.
+
+    Only common image types up to MAX_UPLOAD_BYTES are accepted. The bytes
+    live in the database (one `AboutImages` row each) so the single SQLite
+    file stays the whole site's state; they are served by `get_about_image`.
+    """
     if file_to_upload.content_type not in ALLOWED_IMAGE_TYPES:
         return JSONResponse(
             {"success": False, "message": "Unsupported image type"}, status_code=400
@@ -233,6 +240,13 @@ async def generate_from_resume(
 
 @router.get("/images/{image_id}", responses={404: {"description": "No such image"}})
 async def get_about_image(image_id: str):
+    """
+    Serves an uploaded About image publicly (the stored page HTML links to it).
+
+    Each upload has a fresh id and rows are never rewritten, so the response
+    is cached immutably; `nosniff` is set because the content type came from
+    the uploading client.
+    """
     image = safe_record(
         await db_ops.read_one_record(
             Select(AboutImages).where(AboutImages.pkid == image_id)

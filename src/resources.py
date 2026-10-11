@@ -69,6 +69,14 @@ db_ops = database_operations.DatabaseOperations(async_db)
 
 
 async def startup_event():
+    """
+    App startup: prepares the schema and, in dev environments only, seeds
+    demo data.
+
+    The in-memory database gets its schema from create_tables(); a file
+    database must already have been migrated by Alembic (applied out-of-band,
+    never from here) and startup refuses to run against one that wasn't.
+    """
     logger.info("starting up")
 
     if settings.is_memory_db:
@@ -129,6 +137,11 @@ async def startup_event():
 
 
 async def shutdown_event():
+    """
+    App shutdown: lets SQLite refresh its planner statistics
+    (PRAGMA optimize, file databases only) and closes the engine, which also
+    checkpoints the WAL back into the main file.
+    """
     logger.info("shutting down")
     if not settings.is_memory_db:
         # Refreshes the query planner's statistics for any table whose

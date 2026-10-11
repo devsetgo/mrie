@@ -31,6 +31,9 @@ try:
 except ImportError:
     MarkdownIt = None
 
+# Built on first use rather than at import: importing this module must
+# succeed when markdown-it-py isn't installed (see the module docstring),
+# and the parser is reused across requests once it exists.
 _markdown = None
 
 

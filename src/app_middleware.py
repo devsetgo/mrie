@@ -83,6 +83,12 @@ class AccessLoggerMiddleware(BaseHTTPMiddleware):  # pragma: no cover
         self.user_identifier = user_identifier
 
     async def dispatch(self, request, call_next):
+        """
+        Logs each request's method, URL, client, user, status and duration at
+        DEBUG (credential headers redacted, favicon requests skipped), and
+        logs and re-raises anything the handlers raise so the error is
+        recorded with the request that caused it.
+        """
         # Record the start time
         start_time = time.time()
         try:

@@ -189,6 +189,14 @@ async def login_options(request: Request):
     },
 )
 async def login_verify(request: Request):
+    """
+    Second step of the passkey login: verifies the signed challenge from
+    `/login/begin` against the stored credential and, only if it matches and
+    belongs to the admin identity, starts the session.
+
+    The challenge is popped from the session first, so it can be used once
+    whether or not verification succeeds.
+    """
     challenge_b64 = request.session.pop(CHALLENGE_SESSION_KEY, None)
     if challenge_b64 is None:
         raise HTTPException(status_code=400, detail="No pending challenge")

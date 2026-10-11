@@ -655,6 +655,11 @@ _ABOUT_SYSTEM_PROMPT = (
 
 
 def _clean_strings(value, limit: int, max_chars: int) -> List[str]:
+    """
+    Coerces model output into a list of at most `limit` non-empty strings,
+    each cut to `max_chars`. A bare string becomes a one-item list; anything
+    that isn't a string or list becomes empty.
+    """
     if isinstance(value, str):
         value = [value]
     if not isinstance(value, list):

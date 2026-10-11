@@ -414,6 +414,14 @@ _BUNDLE_KEY_BY_FIELD = {"character_count": "char_count"}
 
 
 async def update_notes_metrics(user_id: str):
+    """
+    Recomputes and stores a user's note metrics (counts, rolling averages,
+    streaks, mood and tag rollups), inserting the row on first use.
+
+    Runs as a background task after note creates, edits, deletes and imports,
+    and on first read when a user has no metrics row yet. It reads up to
+    10,000 notes, decrypting each, so keep it off the request path.
+    """
     logger.debug("background task for metrics")
     started_at = datetime.datetime.now(datetime.timezone.utc)
 

@@ -267,6 +267,12 @@ async def ai_fix_processing(
     note_id: str,
     user_info: dict = Depends(check_login),
 ):
+    """
+    Re-runs AI analysis for one note (admin action, POST-only).
+
+    Clears `ai_fix` immediately so the note leaves the issues list while the
+    background task runs, then redirects to the note.
+    """
     user_identifier = user_info["user_identifier"]
 
     query = Select(Notes).where(
@@ -702,6 +708,13 @@ async def get_note_tags(
 def _apply_notes_filters(
     query, tags: list[str], mood: str, start_date: str, end_date: str
 ):
+    """
+    Adds the list page's tag, mood and date-range filters to `query`.
+
+    Tags match case-insensitively as exact elements of the stored JSON array
+    (OR across the tags given). The date range is inclusive of the end date
+    (see date_functions.filter_date_range); a malformed date raises a 400.
+    """
     # Tag filter: OR logic, case-insensitive exact match within the JSON array.
     # func.lower() on both sides handles mixed-case stored tags (e.g. "Valerie" matches "valerie").
     if tags:
@@ -803,6 +816,13 @@ async def read_notes_pagination(
     limit: int = Query(20, ge=1, le=500, description="Number of notes per page"),
     user_info: dict = Depends(check_login),
 ):
+    """
+    HTML fragment (htmx) with one page of the user's notes.
+
+    Mood, date and tag filters run in SQL. A search term has to decrypt each
+    candidate note to match its text, so with one the whole filtered set is
+    read and paged in memory.
+    """
     user_identifier = user_info["user_identifier"]
     user_timezone = user_info["timezone"]
 
@@ -885,6 +905,10 @@ async def read_today_notes(
     request: Request,
     user_info: dict = Depends(check_login),
 ):
+    """
+    Notes written within `settings.history_range` days of today's month/day in
+    any year ("today in history"), newest first, with summary metrics.
+    """
     user_identifier = user_info["user_identifier"]
     user_timezone = user_info["timezone"]
 
@@ -899,6 +923,11 @@ async def read_today_notes(
     except ZoneInfoNotFoundError, ValueError:
         today = datetime.now(timezone.utc)
 
+    # date_created is stored as naive UTC, while "today" above is the user's
+    # calendar day, so a note written near midnight can fall on the
+    # neighbouring day. The window is `history_range` days either side, so
+    # that skew only ever shows at its edge and is deliberately not
+    # corrected for.
     query = (
         Select(Notes)
         .where(

@@ -37,6 +37,12 @@ from .youtube_helper import (
 
 
 async def _page_content(url: str) -> Optional[PageContent]:
+    """
+    The page text to analyze, or None to analyze from the URL alone.
+
+    YouTube is read through oEmbed; everything else through fetch_page(),
+    which applies the SSRF guard at every redirect hop.
+    """
     if is_youtube_url(url):
         # youtube.com serves bot/consent pages to plain HTTP clients; oEmbed
         # is the reliable source for a video's title and channel.

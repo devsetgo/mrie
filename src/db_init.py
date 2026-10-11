@@ -70,6 +70,8 @@ def _set_sqlite_pragmas(dbapi_connection, _connection_record):
         cursor.execute(f"PRAGMA busy_timeout={int(settings.sqlite_busy_timeout_ms)}")
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.execute("PRAGMA temp_store=MEMORY")
+        # Negative means KiB; a positive value would be a page count (about
+        # 4096x larger at the default page size), so keep the minus sign.
         cursor.execute(f"PRAGMA cache_size=-{int(settings.sqlite_cache_size_kib)}")
     finally:
         cursor.close()

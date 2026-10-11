@@ -91,6 +91,9 @@ def resolve_public_ip(url: str) -> Optional[str]:
 
     addresses = []
     for _family, _type, _proto, _canonname, sockaddr in addr_infos:
+        # getaddrinfo appends a zone id to link-local IPv6 addresses
+        # ("fe80::1%eth0"), a form ip_address() rejects. Strip it so the
+        # address is checked and refused rather than raising.
         ip = ipaddress.ip_address(sockaddr[0].split("%")[0])
         if (
             ip.is_private
@@ -208,6 +211,11 @@ def _clean(text: str) -> str:
 
 
 def parse_page(html: str, url: str) -> PageContent:
+    """
+    Extracts title (og:title, then <title>), description and visible text from
+    an HTML document. Text is capped at MAX_TEXT_CHARS; navigation, scripts
+    and forms are skipped (see _PageParser.SKIP_TAGS).
+    """
     parser = _PageParser()
     parser.feed(html)
     parser.close()

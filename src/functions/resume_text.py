@@ -41,6 +41,10 @@ class ResumeReadError(ValueError):
 
 
 def _from_pdf(data: bytes) -> str:
+    """
+    Text of the first _MAX_PDF_PAGES pages. Raises ResumeReadError when pypdf
+    is missing or the file can't be parsed.
+    """
     if PdfReader is None:
         raise ResumeReadError(
             "PDF résumés need the 'pypdf' package (requirements/prd.txt). "
@@ -51,10 +55,18 @@ def _from_pdf(data: bytes) -> str:
         pages = reader.pages[:_MAX_PDF_PAGES]
         return "\n".join((page.extract_text() or "") for page in pages)
     except (PdfReadError, ValueError, KeyError) as ex:
+        # pypdf raises KeyError/ValueError from deep inside its parser for
+        # some malformed files instead of PdfReadError; all of them mean
+        # "this isn't a readable PDF".
         raise ResumeReadError("That PDF couldn't be read.") from ex
 
 
 def _from_docx(data: bytes) -> str:
+    """
+    Text of a DOCX body, one line per paragraph, read with the standard
+    library only. A DOCX is a zip of XML; the document part's declared size
+    is checked before it is inflated so a zip bomb can't exhaust memory.
+    """
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
             info = archive.getinfo("word/document.xml")
@@ -80,6 +92,10 @@ def _from_docx(data: bytes) -> str:
 
 
 def _from_text(data: bytes) -> str:
+    """
+    Decodes plain text, UTF-8 (with or without BOM) first, then Latin-1,
+    which accepts any byte so a stray character degrades instead of failing.
+    """
     try:
         return data.decode("utf-8-sig")
     except UnicodeDecodeError:
@@ -89,6 +105,10 @@ def _from_text(data: bytes) -> str:
 
 
 def _tidy(text: str) -> str:
+    """
+    Normalizes line endings and runs of whitespace, collapses blank-line
+    runs, and caps the result at MAX_RESUME_CHARS.
+    """
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = re.sub(r"[ \t ]+", " ", text)
     text = re.sub(r"\n\s*\n+", "\n\n", text)

@@ -142,6 +142,10 @@ async def read_weblinks_pagination(
     limit: int = Query(12, ge=1, le=500, description="Number of weblinks per page"),
     user_info: dict = Depends(check_login),
 ):
+    """
+    HTML fragment (htmx) with one page of links, filtered by search term,
+    category and (inclusive) date range, newest first.
+    """
     query_params = {
         "search_term": search_term,
         "start_date": start_date,
@@ -256,6 +260,14 @@ async def create_link(
     request: Request,
     user_info: dict = Depends(check_login),
 ):
+    """
+    Saves a new link and returns immediately.
+
+    Title and summary are filled in afterwards by `process_link_background`
+    (page fetch plus one AI call), so the row holds the processing placeholder
+    until then and the view page refreshes itself. The URL must be an absolute
+    http(s) URL (400 otherwise).
+    """
     user_identifier = user_info["user_identifier"]
 
     form = await request.form()
@@ -373,6 +385,12 @@ async def edit_weblink(
     request: Request,
     user_info: dict = Depends(check_login),
 ):
+    """
+    Re-runs title/summary analysis for an existing link (POST-only).
+
+    The current values stay until the new ones are saved, and stay for good if
+    AI is unavailable.
+    """
     existing = _safe_record(
         await db_ops.read_one_record(Select(WebLinks).where(WebLinks.pkid == pkid))
     )
@@ -430,6 +448,13 @@ async def update_comment(
     request: Request,
     user_info: dict = Depends(check_login),
 ):
+    """
+    Saves edits to a link's comment, URL, category and visibility.
+
+    Only a changed URL queues re-analysis and a new screenshot, because the
+    stored title, summary and preview describe the old page; a comment or
+    category edit leaves them valid.
+    """
     form = await request.form()
     # A missing field is the client's mistake: 400, not a KeyError -> 500.
     if any(field not in form for field in ("comment", "url", "category")):
