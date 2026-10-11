@@ -1,0 +1,9 @@
+{# Not a page: rendered to a string by POST /about/generate-from-resume and loaded into the About editor for review. Every value is model output, so it is autoescaped and never marked |safe. #}
+{% if about.headline %}<h2>{{ about.headline }}</h2>
+{% endif %}{% for paragraph in about.intro %}<p>{{ paragraph }}</p>
+{% endfor %}{% for section in about.sections %}<h3>{{ section.heading }}</h3>
+{% for paragraph in section.paragraphs %}<p>{{ paragraph }}</p>
+{% endfor %}{% if section.highlights %}<ul>
+{% for item in section.highlights %}<li>{{ item }}</li>
+{% endfor %}</ul>
+{% endif %}{% endfor %}

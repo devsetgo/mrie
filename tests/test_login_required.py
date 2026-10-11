@@ -5,15 +5,17 @@ that check_login's own HTTP-level tests (in test_users.py) don't reach:
 - check_user_identifier's "session references a deleted/missing user" branch
   (a real HTTP scenario, exercised via the live app + a monkeypatched DB
   read - the in-memory dev DB reset gotcha CLAUDE.md documents).
-- check_session_expiry's "expired" branch (also via the live app, forcing
-  expiry by monkeypatching settings.max_age rather than waiting out the
-  real window).
+- check_session_expiry's "expired" branch (via the live app, logging in
+  with a negative settings.max_age so the stored exp is already past,
+  rather than waiting out the real window), plus direct checks that exp is
+  an absolute deadline measured in seconds.
 - check_session_expiry's "malformed exp value" branch, which has no HTTP
   path to reach at all (a session's exp is always set to a valid float
   timestamp by the login code) - tested by calling the function directly
   with a minimal stand-in request object.
 """
 
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -47,17 +49,56 @@ def test_check_user_identifier_rejects_when_session_user_no_longer_exists(
     assert response.status_code == 401
 
 
-def test_check_session_expiry_rejects_expired_session(logged_in_client, monkeypatch):
-    # check_session_expiry compares (now - max_age) against the session's
-    # already-stored exp timestamp - a large negative max_age pushes that
-    # cutoff far into the future, so the stored exp reads as "in the past"
-    # without needing to wait out the real expiry window.
-    monkeypatch.setattr(settings, "max_age", -999999)
+def test_check_session_expiry_rejects_expired_session(client, monkeypatch):
+    # Login stores exp = now + max_age; a negative max_age makes that
+    # deadline already past by the time the next request checks it.
+    monkeypatch.setattr(settings, "max_age", -60)
+    login = client.get("/users/dev-login", follow_redirects=False)
+    assert login.status_code == 303
 
-    response = logged_in_client.get(
-        "/notes/", headers=JSON_HEADERS, follow_redirects=False
-    )
+    response = client.get("/notes/", headers=JSON_HEADERS, follow_redirects=False)
     assert response.status_code == 401
+
+
+def test_login_sets_exp_max_age_seconds_ahead(client, monkeypatch):
+    before = datetime.now()
+    client.get("/users/dev-login", follow_redirects=False)
+    after = datetime.now()
+
+    captured = {}
+
+    def fake_check(request):
+        captured["exp"] = request.session["exp"]
+
+    # Read exp back out of the signed cookie via the next checked request.
+    monkeypatch.setattr(login_required_module, "check_session_expiry", fake_check)
+    client.get("/notes/", headers=JSON_HEADERS, follow_redirects=False)
+
+    expires_at = datetime.fromtimestamp(captured["exp"])
+    assert (
+        before + timedelta(seconds=settings.max_age)
+        <= expires_at
+        <= after + timedelta(seconds=settings.max_age)
+    )
+
+
+def test_check_session_expiry_rejects_exp_in_the_past():
+    # Regression: exp used to be compared against (now - max_age minutes),
+    # so a session that expired hours ago still passed.
+    past = (datetime.now() - timedelta(hours=3)).timestamp()
+    fake_request = SimpleNamespace(session={"exp": past, "user_identifier": "u"})
+
+    with pytest.raises(HTTPException) as exc_info:
+        check_session_expiry(fake_request)
+
+    assert exc_info.value.status_code == 401
+
+
+def test_check_session_expiry_accepts_exp_in_the_future():
+    future = (datetime.now() + timedelta(minutes=1)).timestamp()
+    fake_request = SimpleNamespace(session={"exp": future})
+
+    check_session_expiry(fake_request)
 
 
 def test_check_session_expiry_rejects_malformed_exp_value():

@@ -41,6 +41,7 @@ from sqlalchemy import Select, insert, update
 from ..db_tables import Notes, compute_note_derived_fields
 from ..functions import ai, notes_metrics
 from ..functions._optional_deps import async_tqdm, tqdm
+from ..functions.db_guards import is_db_error
 from ..functions.db_guards import safe_record as _safe_record
 from ..functions.encrypt import encrypt_text
 from ..resources import db_ops
@@ -139,54 +140,80 @@ async def read_notes_from_file(csv_file, user_id: str):
     logger.info(f"Number of notes to process: {note_count} (format={csv_format})")
 
     if csv_format == "export":
-        count = 0
-        for c in tqdm(
-            csv_file, desc="Importing exported notes (no AI)", total=note_count
-        ):
-            count += 1
-            date_created = parse_date(c["Date Created"]) or datetime.now(
-                timezone.utc
-            ).replace(tzinfo=None)
-            note_text = c.get("Note") or ""
-            summary_text = c.get("Summary") or ""
-            mood = (c.get("Mood") or "").strip().lower() or "neutral"
-            mood_analysis = (c.get("Mood Analysis") or "").strip().lower()
-            tags = parse_tags_field(c.get("Tags"))
-            # Not forcing ai_fix here - compute_note_derived_fields (the same
-            # rule the before_insert listener used to apply) flags it
-            # automatically if mood/mood_analysis/tags look off.
-            derived = compute_note_derived_fields(
-                note=note_text, mood=mood, mood_analysis=mood_analysis, tags=tags
-            )
-            await db_ops.execute_one(
-                insert(Notes).values(
-                    pkid=str(uuid.uuid4()),
-                    mood=mood,
-                    _note=encrypt_text(note_text),
-                    _summary=encrypt_text(summary_text),
-                    mood_analysis=mood_analysis,
-                    tags=tags,
-                    date_created=date_created,
-                    date_updated=date_created,
-                    user_id=user_id,
-                    **derived,
-                )
-            )
+        count = await _import_export_rows(csv_file, note_count, user_id)
         logger.info(
             f"Imported {count} notes from export format, no AI processing queued"
         )
         await notes_metrics.update_notes_metrics(user_id=user_id)
         return
 
-    # Initialize a list to store the IDs of the notes that need AI processing
+    ai_ids, count = await _import_simple_rows(csv_file, note_count, user_id)
+    logger.info(f"Notes imoorted: {count}")
+    # Process the notes with AI
+    await process_ai(list_of_ids=ai_ids)
+    # Update the notes metrics
+    await notes_metrics.update_notes_metrics(user_id=user_id)
+
+
+def _date_or_now(raw):
+    """
+    parse_date(raw), or now (naive UTC) when it is blank or unparseable.
+
+    A missing date must not become date_created=None: that overrides the
+    column default and stores a dateless (or, with NOT NULL, rejected) note.
+    """
+    return parse_date(raw) or datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+async def _import_export_rows(rows, note_count: int, user_id: str) -> int:
+    """
+    Stores rows in dsg's Notes Export format as-is (mood, tags and summary
+    already present, so no AI call) and returns how many were read.
+    """
+    count = 0
+    for c in tqdm(rows, desc="Importing exported notes (no AI)", total=note_count):
+        count += 1
+        date_created = _date_or_now(c["Date Created"])
+        note_text = c.get("Note") or ""
+        summary_text = c.get("Summary") or ""
+        mood = (c.get("Mood") or "").strip().lower() or "neutral"
+        mood_analysis = (c.get("Mood Analysis") or "").strip().lower()
+        tags = parse_tags_field(c.get("Tags"))
+        # Not forcing ai_fix here - compute_note_derived_fields (the same
+        # rule the before_insert listener used to apply) flags it
+        # automatically if mood/mood_analysis/tags look off.
+        derived = compute_note_derived_fields(
+            note=note_text, mood=mood, mood_analysis=mood_analysis, tags=tags
+        )
+        await db_ops.execute_one(
+            insert(Notes).values(
+                pkid=str(uuid.uuid4()),
+                mood=mood,
+                _note=encrypt_text(note_text),
+                _summary=encrypt_text(summary_text),
+                mood_analysis=mood_analysis,
+                tags=tags,
+                date_created=date_created,
+                date_updated=date_created,
+                user_id=user_id,
+                **derived,
+            )
+        )
+    return count
+
+
+async def _import_simple_rows(rows, note_count: int, user_id: str):
+    """
+    Stores rows in the minimal my_note/mood/date_created format with
+    "processing" placeholders, and returns (ids needing AI analysis, count
+    of rows read). A row whose insert fails is logged and left out of the
+    ids, so process_note() never reads back a row that was never stored.
+    """
     ai_ids = []
     count = 0
-
-    # Iterate over each note in the CSV file
-    for c in tqdm(csv_file, desc="Importing notes", total=note_count):
+    for c in tqdm(rows, desc="Importing notes", total=note_count):
         count += 1
-        # Parse the date created
-        date_created = parse_date(c["date_created"])
+        date_created = _date_or_now(c["date_created"])
         mood = c["mood"]
         logger.info(f"Processing note {count} for {date_created}")
         # If the mood is not one of the expected values, set it to "processing"
@@ -195,49 +222,40 @@ async def read_notes_from_file(csv_file, user_id: str):
 
         note_text = c["my_note"]
 
-        # Initialize the analysis with "processing" values
-        analysis = {
-            "tags": {"tags": ["processing"]},
-            "summary": "processing",
-            "mood_analysis": "processing",
-        }
-
-        # Create the note. ai_fix is forced True here (rather than computed
-        # via compute_note_derived_fields, which could come back False for a
-        # note whose mood happens to already look valid) - this note is
+        # Create the note. ai_fix is forced True (rather than computed via
+        # compute_note_derived_fields, which could come back False for a
+        # note whose mood happens to already look valid): this note is
         # freshly imported and still pending real AI analysis, so it must
-        # show as needing a fix until process_note() below actually runs.
+        # show as needing a fix until process_note() actually runs.
         new_pkid = str(uuid.uuid4())
         derived = compute_note_derived_fields(
             note=note_text,
             mood=mood,
-            mood_analysis=analysis["mood_analysis"],
-            tags=analysis["tags"]["tags"],
+            mood_analysis="processing",
+            tags=["processing"],
         )
         derived["ai_fix"] = True
-        await db_ops.execute_one(
+        insert_result = await db_ops.execute_one(
             insert(Notes).values(
                 pkid=new_pkid,
                 mood=mood,
                 _note=encrypt_text(note_text),
-                tags=analysis["tags"]["tags"],
-                _summary=encrypt_text(analysis["summary"]),
-                mood_analysis=analysis["mood_analysis"],
+                tags=["processing"],
+                _summary=encrypt_text("processing"),
+                mood_analysis="processing",
                 date_created=date_created,
                 date_updated=date_created,
                 user_id=user_id,
                 **derived,
             )
         )
+        if is_db_error(insert_result):
+            logger.error(f"Error importing note {count}: {insert_result}")
+            continue
         logger.info(f"Created note with ID: {new_pkid}")
-        # Add the ID of the note to the list of IDs for AI processing
         ai_ids.append(new_pkid)
 
-    logger.info(f"Notes imoorted: {count}")
-    # Process the notes with AI
-    await process_ai(list_of_ids=ai_ids)
-    # Update the notes metrics
-    await notes_metrics.update_notes_metrics(user_id=user_id)
+    return ai_ids, count
 
 
 def parse_date(date_created):

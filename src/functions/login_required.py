@@ -11,7 +11,7 @@ Author:
     MIT Licensed
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from fastapi import HTTPException, Request
 from loguru import logger
@@ -19,7 +19,6 @@ from sqlalchemy import Select
 
 from ..db_tables import Users
 from ..resources import db_ops
-from ..settings import settings
 from .db_guards import safe_record
 
 
@@ -59,19 +58,18 @@ def check_session_expiry(request):
     Raises:
         HTTPException: If the session has expired or the session update time is invalid.
     """
-    session_expiry_time = datetime.now() - timedelta(minutes=settings.max_age)
-
+    # exp is the absolute expiry set at login (login time + max_age). The
+    # cookie alone can't enforce that: SessionMiddleware re-issues it on
+    # every response, so its max_age is only an idle timeout.
     try:
-        last_updated = datetime.fromtimestamp(request.session.get("exp", 0))
+        expires_at = datetime.fromtimestamp(request.session.get("exp", 0))
     except ValueError:
-        logger.error("Invalid session update time")
+        logger.error("Invalid session expiry time")
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    current = session_expiry_time < last_updated
-
-    if not current:
+    if datetime.now() >= expires_at:
         logger.error(
-            f"user {request.session.get('user_identifier')} outside window: {current}"
+            f"user {request.session.get('user_identifier')} session expired at {expires_at}"
         )
         raise HTTPException(status_code=401, detail="Unauthorized")
 

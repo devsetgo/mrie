@@ -1,10 +1,6 @@
 <div class="col-md-12">
     <label>Note:</label>
     <br>
-    <textarea id="hiddenTextarea" style="display: none;">{{ note.note|safe }}</textarea>
-    <div id="noteDisplay"></div>
+    {# Rendered and sanitized on the server (functions/sanitize.py). It used to be a hidden <textarea> filled with the raw body, then marked.parse() into innerHTML: a body containing </textarea> broke out of the element, and marked doesn't sanitize its output. #}
+    <div id="noteDisplay">{{ note.note | render_markdown }}</div>
 </div>
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-<script>
-    document.getElementById('noteDisplay').innerHTML = marked.parse(document.getElementById('hiddenTextarea').value);
-</script>

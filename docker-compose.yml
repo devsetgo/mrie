@@ -1,43 +1,97 @@
-version: "3.3"
-
+# Production: a single container on a single server, behind Traefik, with the
+# SQLite database on a named volume. The healthcheck lives in the dockerfile.
+#
+# Exactly one container must ever own the database file: do not add
+# `deploy.replicas` or scale this service. SQLite locking across containers
+# on one host's volume does work, but it gains nothing here and a second
+# host can't share the file at all.
+#
+# Layout this file expects on the server. Override SHARED_CONFIG_FILE and
+# SHARED_SECRETS_DIR (in the shell, or in the server repo's .env, which
+# Compose reads for substitution) if yours differs. Everything here is
+# meant to be reused by every app on the box, so a rotated OpenAI key or a
+# changed log level is edited once:
+#
+#   /opt/docker/shared/common.env      non-secret settings common to all apps
+#                                      (LOGGING_LEVEL, LOG_RETENTION, ...);
+#                                      see common.env.sample in the app repo
+#   /opt/docker/shared/secrets/openai_key
+#   /opt/docker/shared/secrets/phrase  one file per secret, value only
+#   /opt/docker/shared/secrets/salt
+#
+# The secret files must be readable by the container user (uid 10001): a
+# plain `chmod 0444` on each file, or `chown 10001`. A trailing newline in
+# the file is stripped on read, so `echo value > openai_key` is fine.
+#
+# PHRASE and SALT derive the key that encrypts every note: they must be
+# byte-for-byte the values the notes were encrypted with, and shared apps
+# must not rotate them without re-encrypting.
 services:
   mikeryan:
-    image: mikeryan56/mikeryanie:2024-10-25-001
+    image: mikeryan56/mikeryanie:latest
+    # `latest` is a moving tag: without this, `docker compose up -d` reuses
+    # whatever image is already on the host and never picks up a new build.
+    pull_policy: always
+    # Later files override earlier ones: the app's own .env wins over the
+    # shared settings. The shared file is optional so the app still starts
+    # on a host that hasn't set it up.
     env_file:
-      - .env
-    restart: always
-    ports:
-      - "5000:5000"  # Ensure both host and container ports are specified
+      - path: ${SHARED_CONFIG_FILE:-/opt/docker/shared/common.env}
+        required: false
+      - path: .env
+    secrets:
+      - phrase
+      - salt
+      - openai_key
+    environment:
+      # Pinned here, not left to .env, so the volume mount below and the
+      # path the app writes to can't drift apart.
+      DB_DRIVER: sqlite
+      DB_DIRECTORY: /app/sqlite_db
+      # Traefik's address must be trusted for X-Forwarded-Proto, or the app
+      # emits http:// asset URLs on the https site (see dockerfile). "*" is
+      # safe only because port 5000 is not published to the host - Traefik
+      # on the `web` network is the only thing that can reach it.
+      FORWARDED_ALLOW_IPS: "*"
+    restart: unless-stopped
+    # Give uvicorn time to finish in-flight requests and run its shutdown
+    # hook (PRAGMA optimize, WAL checkpoint) before Docker sends SIGKILL.
+    stop_grace_period: 30s
     networks:
       - web
-      # - postrgresql_db_network
     labels:
       - "traefik.http.middlewares.mrie-https.redirectscheme.scheme=https"
       #### Labels define the behavior and rules of the traefik proxy for this container ####
       - "traefik.enable=true" # <== Enable traefik to proxy this container
+      - "traefik.http.services.mrie.loadbalancer.server.port=5000"
       - "traefik.http.routers.mrie-web.rule=Host(`www.mikeryan.ie`, `mikeryan.ie`)" # <== Your Domain Name goes here for the http rule
-      - "traefik.http.routers.mrie-web.entrypoints=web" # <== Defining the entrypoint for http, **ref: line 30
+      - "traefik.http.routers.mrie-web.entrypoints=web" # <== Defining the entrypoint for http
       - "traefik.http.routers.mrie-web.middlewares=redirect@file" # <== This is a middleware to redirect to https
       - "traefik.http.routers.mrie-secured.rule=Host(`www.mikeryan.ie`, `mikeryan.ie`)" # <== Your Domain Name for the https rule
-      - "traefik.http.routers.mrie-secured.entrypoints=web-secured" # <== Defining entrypoint for https, **ref: line 31
+      - "traefik.http.routers.mrie-secured.entrypoints=web-secured" # <== Defining entrypoint for https
       - "traefik.http.routers.mrie-secured.tls.certresolver=mytlschallenge" # <== Defining certsresolvers for https
-
     volumes:
+      # Must be a local volume (not NFS/SMB): SQLite's WAL mode relies on
+      # shared-memory locking that network filesystems don't provide.
+      - db-volume:/app/sqlite_db
       - log-volume:/app/logs
-    deploy:
-      replicas: 2
-      update_config:
-        parallelism: 1
-        delay: 30s
-      restart_policy:
-        condition: on-failure
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:5000/api/health/status || exit 1"]
-      interval: 1m30s
 
 networks:
   web:
     external: true  # Ensure the 'web' network is defined and set to external if managed outside this compose file
 
 volumes:
+  db-volume:
   log-volume:
+
+# Mounted at /run/secrets/<name>, where the app reads them as settings (see
+# src/settings.py: a real env var or .env value still takes precedence, so a
+# value left in .env keeps working during the move). `file:` sources, not
+# `external: true`, because this is plain Compose, not Swarm.
+secrets:
+  phrase:
+    file: ${SHARED_SECRETS_DIR:-/opt/docker/shared/secrets}/phrase
+  salt:
+    file: ${SHARED_SECRETS_DIR:-/opt/docker/shared/secrets}/salt
+  openai_key:
+    file: ${SHARED_SECRETS_DIR:-/opt/docker/shared/secrets}/openai_key

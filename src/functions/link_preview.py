@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
-""" """
+"""Link status checks and Selenium screenshot capture for weblinks."""
 
 import ipaddress
-import socket
 import time
 from urllib.parse import urlparse
 
@@ -12,11 +11,9 @@ from loguru import logger
 from sqlalchemy import Select, update
 
 from ..db_tables import WebLinks, compute_weblink_ai_fix
-from ..functions import ai
-from ..functions._optional_deps import tqdm, unsync
-from ..functions.db_guards import is_db_error
 from ..functions.db_guards import safe_record as _safe_record
 from ..resources import db_ops
+from .page_fetch import is_safe_public_url, pinned_request, resolve_public_ip
 
 try:
     from selenium import webdriver
@@ -28,46 +25,6 @@ except ImportError:
 
 client = httpx.AsyncClient()
 
-_ALLOWED_SCREENSHOT_SCHEMES = {"http", "https"}
-
-
-def _is_safe_screenshot_url(url: str) -> bool:
-    """
-    Reject URLs that would let Selenium's driver.get(url) be used for SSRF -
-    non-http(s) schemes (file://, etc.), and any hostname that resolves to a
-    private/loopback/link-local/reserved address. This blocks the cloud
-    metadata endpoint (169.254.169.254), internal services (RFC1918), and
-    the local machine (127.0.0.0/8) - url is admin-supplied (weblink create/
-    edit) but a compromised or CSRF'd admin session shouldn't be able to
-    pivot into the deployment's internal network via a "bookmark".
-    """
-    try:
-        parsed = urlparse(url)
-    except ValueError:
-        return False
-
-    if parsed.scheme not in _ALLOWED_SCREENSHOT_SCHEMES or not parsed.hostname:
-        return False
-
-    try:
-        addr_infos = socket.getaddrinfo(parsed.hostname, None)
-    except socket.gaierror:
-        return False
-
-    for _family, _type, _proto, _canonname, sockaddr in addr_infos:
-        ip = ipaddress.ip_address(sockaddr[0])
-        if (
-            ip.is_private
-            or ip.is_loopback
-            or ip.is_link_local
-            or ip.is_reserved
-            or ip.is_multicast
-            or ip.is_unspecified
-        ):
-            return False
-
-    return True
-
 
 async def url_status(url: str) -> bool:
     """
@@ -77,16 +34,32 @@ async def url_status(url: str) -> bool:
         url (str): The URL to check.
 
     Returns:
-        bool: True if the URL is not reachable (i.e., status code is not 2xx or 3xx), False otherwise.
+        bool: True if the URL answered with a non-error status (below 400,
+        redirects included). False for an error status, a timeout/DNS/
+        connection failure, or a URL that mustn't be fetched at all - the
+        view page shows "Link Working" only for True.
     """
 
-    try:
-        response = await client.get(url)
-        if response.status_code < 400:
-            return True
+    # Same SSRF guard as page fetching and screenshots - this runs on every
+    # view of a link. No redirects are followed (httpx default), so the one
+    # checked hop is the only one requested.
+    ip = await anyio.to_thread.run_sync(resolve_public_ip, url)
+    if ip is None:
         return False
-    except Exception:
-        return True
+
+    try:
+        # Connect to the address that was just checked (see pinned_request).
+        request_url, headers, extensions = pinned_request(url, ip)
+        response = await client.get(request_url, headers=headers, extensions=extensions)
+        return response.status_code < 400
+    except Exception as exc:
+        # Timeout, DNS failure, refused connection, TLS error - the link
+        # isn't working. This used to return True, so a dead host showed
+        # the green "Link Working" check. Deliberately broad: this is a
+        # best-effort probe run while rendering a page, so nothing it
+        # raises may take the page down with it.
+        logger.info(f"Link status check failed for {url}: {exc!r}")
+        return False
 
 
 async def save_preview_image(pkid: str, image: bytes):
@@ -118,6 +91,23 @@ async def save_preview_image(pkid: str, image: bytes):
         logger.error(error)
 
 
+def _host_resolver_rule(url: str, ip: str):
+    """
+    Chrome `--host-resolver-rules` value pinning `url`'s hostname to `ip`,
+    or None when the URL already names an address (nothing to pin).
+    """
+    host = urlparse(url).hostname
+    if not host:
+        return None
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        pass
+    else:
+        return None
+    return f"MAP {host} [{ip}]" if ":" in ip else f"MAP {host} {ip}"
+
+
 def _capture_full_page_screenshot_sync(url: str) -> bytes:
     """
     Synchronous Selenium body of capture_full_page_screenshot(). Runs in a
@@ -127,7 +117,8 @@ def _capture_full_page_screenshot_sync(url: str) -> bytes:
     """
     from .youtube_helper import is_youtube_url
 
-    if not _is_safe_screenshot_url(url):
+    ip = resolve_public_ip(url)
+    if ip is None:
         raise ValueError(f"Refusing to capture screenshot for unsafe URL: {url!r}")
 
     # Set up Chrome options
@@ -143,6 +134,16 @@ def _capture_full_page_screenshot_sync(url: str) -> bytes:
         "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
     )
     chrome_options.binary_location = "/usr/bin/google-chrome"  # Path to Chrome binary
+
+    # Chrome does its own DNS lookup, so without this a hostile DNS server
+    # could answer "public" to the check above and "internal" to Chrome.
+    # The rule keeps the hostname (certificates and cookies still match)
+    # but forces it to the address that was just checked. Only the starting
+    # host is pinned; a redirect to another host is caught by the
+    # final-URL check below.
+    pin_rule = _host_resolver_rule(url, ip)
+    if pin_rule:
+        chrome_options.add_argument(f"--host-resolver-rules={pin_rule}")
 
     # For YouTube URLs, add additional options to avoid bot detection
     if is_youtube_url(url):
@@ -164,6 +165,15 @@ def _capture_full_page_screenshot_sync(url: str) -> bytes:
 
         # Navigate to the URL
         driver.get(url)
+
+        # Redirects (HTTP, meta refresh, script) are followed by Chrome, not
+        # by the checked fetch path. If it ended up somewhere internal, the
+        # request has already been made, but the response must not be
+        # rendered into a preview image the admin can view.
+        if not is_safe_public_url(driver.current_url):
+            raise ValueError(
+                f"Refusing to capture {url!r}: it redirected to an unsafe address"
+            )
 
         # For YouTube, wait a bit longer and handle cookie acceptance
         if is_youtube_url(url):
@@ -238,56 +248,3 @@ async def get_weblink_metrics():
 
     print(response)
     return response
-
-
-def update_weblinks_ai(list_of_ids: list):
-    tasks = [
-        update_weblinks(pkid=pkid)
-        for pkid in tqdm(list_of_ids, ascii=False, leave=True, desc="Sending Weblinks")
-    ]
-    results = [
-        task.result()
-        for task in tqdm(tasks, ascii=False, leave=True, desc="Updating Weblinks")
-    ]
-    logger.info(f"Weblink AI Fix Results: {results}")
-    return None
-
-
-@unsync
-async def update_weblinks(pkid: str):
-    try:
-        data = _safe_record(
-            await db_ops.read_one_record(Select(WebLinks).where(WebLinks.pkid == pkid))
-        )
-        logger.debug(f"Received data from DB: {data}")
-        if data is None:
-            logger.error(f"Error reading link {pkid}")
-        else:
-            summary = await ai.get_url_summary(url=data.url, sentence_length=20)
-            title = await ai.get_url_title(url=data.url)
-            logger.debug(f"Received summary from AI: {summary}")
-            weblink_update = {
-                "title": title,
-                "summary": summary["summary"],
-                "ai_fix": compute_weblink_ai_fix(
-                    image_preview_data=data.image_preview_data,
-                    title=title,
-                    summary=summary["summary"],
-                ),
-            }
-            logger.debug(f"Updating weblinks: {weblink_update}")
-            result = await db_ops.execute_one(
-                update(WebLinks).where(WebLinks.pkid == pkid).values(**weblink_update)
-            )
-            logger.debug(f"Updated weblinks: {result}")
-            if is_db_error(result):
-                logger.error(f"Error updating weblink: {result}")
-
-            logger.info(f"Created weblinks with ID: {pkid}")
-
-            await capture_full_page_screenshot(url=data.url, pkid=pkid)
-            return "complete"
-    except Exception as e:
-        error = f"Error updating weblinks: {e}"
-        logger.error(error)
-        return "error"

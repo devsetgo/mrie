@@ -55,6 +55,12 @@ def test_error_page(client):
         assert response.status_code == 200
 
 
+def test_error_page_for_unknown_code_shows_not_found(client):
+    response = client.get("/error/999")
+    assert response.status_code == 200
+    assert "404" in response.text
+
+
 def test_health_status(client):
     response = client.get("/api/health/status")
     assert response.status_code == 200
@@ -68,3 +74,22 @@ def test_health_uptime(client):
 def test_health_heapdump(client):
     response = client.get("/api/health/heapdump")
     assert response.status_code == 200
+
+
+def test_health_heapdump_not_registered_outside_dev(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from src.app_routes import create_routes
+    from src.settings import settings
+
+    monkeypatch.setattr(settings, "release_env", "prd")
+    prod_app = FastAPI()
+    create_routes(prod_app)
+
+    prod_client = TestClient(prod_app)
+    assert prod_client.get("/api/health/status").status_code == 200
+    response = prod_client.get(
+        "/api/health/heapdump", headers={"accept": "application/json"}
+    )
+    assert response.status_code == 404

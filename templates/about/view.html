@@ -2,15 +2,65 @@
 
 {% block title %}About | MikeRyan.ie{% endblock %}
 
+{% block extra_head %}
+<style>
+    .about-layout {
+        display: flex;
+        align-items: flex-start;
+        gap: 3rem;
+        padding: 3rem;
+    }
+
+    .about-body {
+        flex: 1 1 auto;
+        min-width: 0;
+        max-width: 720px;
+    }
+
+    .about-photo {
+        flex: 0 0 clamp(200px, 24vw, 340px);
+        /* Stays in view while the text scrolls past it. */
+        position: sticky;
+        top: 3rem;
+    }
+
+    .about-photo img {
+        width: 100%;
+        aspect-ratio: 4 / 5;
+        object-fit: cover;
+        object-position: center 20%;
+        border-radius: 12px;
+        box-shadow: 0 10px 30px rgba(20, 24, 28, 0.25);
+    }
+
+    /* Below this width the sidebar already sits on top of the page with the
+       same headshot, so a second copy beside the text would just repeat it. */
+    @media (max-width: 992px) {
+        .about-layout {
+            padding: 2rem 1.25rem;
+        }
+
+        .about-photo {
+            display: none;
+        }
+    }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="p-5" style="max-width: 720px;">
-    {% if request.session.user_identifier %}
-    <div class="mb-4">
-        <a href="/about/edit" class="btn btn-outline-secondary btn-sm">
-            <i class="fa-solid fa-pen-to-square"></i> Edit this page
-        </a>
-    </div>
-    {% endif %}
-    {{ content | safe }}
+<div class="about-layout">
+    <article class="about-body">
+        {% if request.session.user_identifier %}
+        <div class="mb-4">
+            <a href="/about/edit" class="btn btn-outline-secondary btn-sm">
+                <i class="fa-solid fa-pen-to-square"></i> Edit this page
+            </a>
+        </div>
+        {% endif %}
+        {{ content | safe }}
+    </article>
+    <aside class="about-photo">
+        <img src="{{ url_for('statics', path='img/headshot_2.jpg') }}" alt="Mike Ryan">
+    </aside>
 </div>
 {% endblock %}

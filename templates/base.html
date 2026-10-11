@@ -91,6 +91,21 @@
             border-top: 1px solid rgba(255, 255, 255, 0.08);
         }
 
+        /* Logout is a POST form (so a cross-site link can't trigger it), but
+           it has to look like the other sidebar links. */
+        .sidebar .auth-link button {
+            display: block;
+            width: 100%;
+            background: none;
+            border: 0;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            color: #b7bdc6;
+            padding: 0.6rem 0;
+            font: inherit;
+            cursor: pointer;
+        }
+
+        .sidebar .auth-link button:hover,
         .sidebar .auth-link a:hover {
             color: #fff;
         }
@@ -143,7 +158,9 @@
             </nav>
             <div class="auth-link">
                 {% if request.session.user_identifier %}
-                <a href="/users/logout"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
+                <form method="post" action="/users/logout">
+                    <button type="submit"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
+                </form>
                 {% else %}
                 <a href="/users/login"><i class="fa-solid fa-key"></i> Login</a>
                 {% endif %}

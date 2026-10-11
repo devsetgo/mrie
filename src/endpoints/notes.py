@@ -47,13 +47,14 @@ import io
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import (
     APIRouter,
     BackgroundTasks,
     Depends,
     File,
+    HTTPException,
     Path,
     Query,
     Request,
@@ -65,11 +66,9 @@ from sqlalchemy import (
     Select,
     Text,
     and_,
-    between,
     cast,
     delete,
     desc,
-    extract,
     func,
     insert,
     or_,
@@ -258,13 +257,22 @@ async def ai_update_note(
     )
 
 
-@router.get("/ai-fix/{note_id}")
+# POST, not GET: it clears the flag and queues a paid OpenAI call, and a GET
+# can be triggered by any page the admin visits (a cross-site top-level
+# navigation carries SameSite=Lax cookies; a cross-site POST does not).
+@router.post("/ai-fix/{note_id}")
 async def ai_fix_processing(
     background_tasks: BackgroundTasks,
     request: Request,
     note_id: str,
     user_info: dict = Depends(check_login),
 ):
+    """
+    Re-runs AI analysis for one note (admin action, POST-only).
+
+    Clears `ai_fix` immediately so the note leaves the issues list while the
+    background task runs, then redirects to the note.
+    """
     user_identifier = user_info["user_identifier"]
 
     query = Select(Notes).where(
@@ -294,7 +302,7 @@ async def ai_fix_processing(
         mood_process=mood,
     )
     logger.info(f"Queued background AI fix for note {note_id}")
-    return RedirectResponse(url=f"/notes/view/{note_id}", status_code=302)
+    return RedirectResponse(url=f"/notes/view/{note_id}", status_code=303)
 
 
 @router.get("/bulk")
@@ -700,6 +708,14 @@ async def get_note_tags(
 def _apply_notes_filters(
     query, tags: list[str], mood: str, start_date: str, end_date: str
 ):
+    """
+    Adds the list page's tag, mood and date-range filters to `query`.
+
+    Tags match case-insensitively as exact elements of the stored JSON array
+    (OR across the tags given). The date range is inclusive of the end date
+    (see date_functions.filter_date_range). A malformed date raises
+    ValueError, which the route turns into a 400.
+    """
     # Tag filter: OR logic, case-insensitive exact match within the JSON array.
     # func.lower() on both sides handles mixed-case stored tags (e.g. "Valerie" matches "valerie").
     if tags:
@@ -721,18 +737,9 @@ def _apply_notes_filters(
         query = query.where(Notes.mood == mood.lower())
 
     if start_date or end_date:
-        start_dt = (
-            datetime.strptime(start_date, "%Y-%m-%d")
-            if start_date
-            else datetime(2011, 1, 1)
-        )
-        end_dt = (
-            datetime.strptime(end_date, "%Y-%m-%d")
-            if end_date
-            else datetime.now(timezone.utc) + timedelta(days=2)
-        )
+        start_dt, end_dt = date_functions.filter_date_range(start_date, end_date)
         query = query.where(
-            (Notes.date_created >= start_dt) & (Notes.date_created <= end_dt)
+            (Notes.date_created >= start_dt) & (Notes.date_created < end_dt)
         )
 
     return query
@@ -791,7 +798,10 @@ def _build_pagination_url(
     return build_page_url("/notes/pagination", page, params)
 
 
-@router.get("/pagination")
+@router.get(
+    "/pagination",
+    responses={400: {"description": "start_date or end_date is not YYYY-MM-DD"}},
+)
 async def read_notes_pagination(
     request: Request,
     search_term: str = Query(
@@ -801,10 +811,17 @@ async def read_notes_pagination(
     end_date: str = Query(None, description="End date"),
     mood: str = Query(None, description="Mood"),
     tags: list[str] = Query(default=[], description="Tags to filter by (OR logic)"),
-    page: int = Query(1, description="Page number"),
-    limit: int = Query(20, description="Number of notes per page"),
+    page: int = Query(1, ge=1, description="Page number"),
+    limit: int = Query(20, ge=1, le=500, description="Number of notes per page"),
     user_info: dict = Depends(check_login),
 ):
+    """
+    HTML fragment (htmx) with one page of the user's notes.
+
+    Mood, date and tag filters run in SQL. A search term has to decrypt each
+    candidate note to match its text, so with one the whole filtered set is
+    read and paged in memory.
+    """
     user_identifier = user_info["user_identifier"]
     user_timezone = user_info["timezone"]
 
@@ -815,7 +832,13 @@ async def read_notes_pagination(
 
     # Base SQL query — mood, dates, and tags are filterable at the DB level
     query = Select(Notes).where(Notes.user_id == user_identifier)
-    query = _apply_notes_filters(query, tags, mood, start_date, end_date)
+    try:
+        query = _apply_notes_filters(query, tags, mood, start_date, end_date)
+    except ValueError:
+        # filter_date_range: a start/end date that isn't YYYY-MM-DD.
+        raise HTTPException(
+            status_code=400, detail="Dates must be in YYYY-MM-DD format"
+        ) from None
     query = query.order_by(Notes.date_created.desc())
 
     offset = (page - 1) * limit
@@ -865,12 +888,32 @@ async def read_notes_pagination(
     )
 
 
+def history_month_days(today: datetime, days_either_side: int) -> list[str]:
+    """
+    The "MM-DD" strings for every day from `days_either_side` before `today`
+    to `days_either_side` after it.
+
+    The window is built from real dates, so it crosses month and year ends
+    correctly. Comparing `month == start.month AND day BETWEEN start.day AND
+    end.day` doesn't: on Dec 30 with a 7-day range that is
+    `day BETWEEN 23 AND 6`, which matches nothing.
+    """
+    return [
+        (today + timedelta(days=offset)).strftime("%m-%d")
+        for offset in range(-days_either_side, days_either_side + 1)
+    ]
+
+
 # today in history notes list
 @router.get("/today")
 async def read_today_notes(
     request: Request,
     user_info: dict = Depends(check_login),
 ):
+    """
+    Notes written within `settings.history_range` days of today's month/day in
+    any year ("today in history"), newest first, with summary metrics.
+    """
     user_identifier = user_info["user_identifier"]
     user_timezone = user_info["timezone"]
 
@@ -878,35 +921,25 @@ async def read_today_notes(
         logger.debug(USER_IDENTIFIER_NONE_MSG)
         return RedirectResponse(url=USERS_LOGIN_URL, status_code=302)
 
-    # get today's date
-    today = datetime.now(timezone.utc)
+    # "Today" is the user's calendar day, not UTC's: late in the evening in
+    # New York the UTC date is already tomorrow.
+    try:
+        today = datetime.now(ZoneInfo(user_timezone or settings.default_timezone))
+    except ZoneInfoNotFoundError, ValueError:
+        today = datetime.now(timezone.utc)
 
-    # calculate the dates for 7 days before and after today
-    start_date = today - timedelta(days=settings.history_range)
-    end_date = today + timedelta(days=settings.history_range)
-
+    # date_created is stored as naive UTC, while "today" above is the user's
+    # calendar day, so a note written near midnight can fall on the
+    # neighbouring day. The window is `history_range` days either side, so
+    # that skew only ever shows at its edge and is deliberately not
+    # corrected for.
     query = (
         Select(Notes)
         .where(
             and_(
                 Notes.user_id == user_identifier,
-                or_(
-                    and_(
-                        extract("month", Notes.date_created) == start_date.month,
-                        between(
-                            extract("day", Notes.date_created),
-                            start_date.day,
-                            end_date.day,
-                        ),
-                    ),
-                    and_(
-                        extract("month", Notes.date_created) == end_date.month,
-                        between(
-                            extract("day", Notes.date_created),
-                            start_date.day,
-                            end_date.day,
-                        ),
-                    ),
+                func.strftime("%m-%d", Notes.date_created).in_(
+                    history_month_days(today, settings.history_range)
                 ),
             )
         )

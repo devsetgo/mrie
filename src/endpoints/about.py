@@ -8,44 +8,51 @@ creating it with default content on first access). Viewing is public;
 editing requires a logged-in session, same as every other write path in this
 app (Depends(check_login)).
 
-Uploaded images go to static/uploads/about/ on the filesystem, not the DB
-blob + base64 pattern WebLinks uses for its preview thumbnail
-(image_preview_data) - that pattern fits a single auto-fetched image per
-link, but the About page can accumulate many free-form embedded images over
-time via the rich-text editor, and base64-inlining all of them into the
-`content` column would bloat it significantly with no ability to reuse an
-image across edits. A plain file on disk, referenced by URL, keeps the
-stored HTML small and reuses the app's existing static-file serving with no
-new endpoint needed.
+Uploaded images are stored in the database (AboutImages, one row per image)
+and served by GET /about/images/{image_id}, referenced from the stored HTML
+by that URL. Not as loose files on disk: keeping every piece of runtime
+state inside the one SQLite file means a single file copy (see
+`make db-backup`) backs up the whole site, images included. Also not the base64-inlined blob pattern WebLinks uses
+for its preview thumbnail (image_preview_data): the rich-text editor can
+accumulate many free-form images, and inlining all of them into the
+`content` column would bloat every page load. A separate row per image,
+fetched by URL, keeps the stored HTML small and lets browsers cache each
+image independently.
 
 Author:
     Mike Ryan
     MIT Licensed
 """
 
-import os
 import uuid
 
-import anyio
-from fastapi import APIRouter, Depends, File, Request, UploadFile
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+)
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from loguru import logger
 from sqlalchemy import Select, insert, update
 
-from ..db_tables import AboutPage
+from ..db_tables import AboutImages, AboutPage
+from ..functions import ai
 from ..functions.db_guards import is_db_error, safe_record
 from ..functions.login_required import check_login
+from ..functions.resume_text import (
+    MAX_RESUME_CHARS,
+    ResumeReadError,
+    extract_resume_text,
+)
 from ..resources import db_ops, templates
 
 router = APIRouter()
 
-UPLOAD_DIR = os.path.join("static", "uploads", "about")
-ALLOWED_IMAGE_TYPES = {
-    "image/jpeg": ".jpg",
-    "image/png": ".png",
-    "image/gif": ".gif",
-    "image/webp": ".webp",
-}
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
 
 DEFAULT_CONTENT = """\
@@ -132,6 +139,13 @@ async def upload_about_image(
     file_to_upload: UploadFile = File(..., alias="fileToUpload"),
     user_info: dict = Depends(check_login),
 ):
+    """
+    Stores an image uploaded from the About editor and returns its public URL.
+
+    Only common image types up to MAX_UPLOAD_BYTES are accepted. The bytes
+    live in the database (one `AboutImages` row each) so the single SQLite
+    file stays the whole site's state; they are served by `get_about_image`.
+    """
     if file_to_upload.content_type not in ALLOWED_IMAGE_TYPES:
         return JSONResponse(
             {"success": False, "message": "Unsupported image type"}, status_code=400
@@ -144,18 +158,110 @@ async def upload_about_image(
             status_code=413,
         )
 
-    extension = ALLOWED_IMAGE_TYPES[file_to_upload.content_type]
-    filename = f"{uuid.uuid4()}{extension}"
-    file_path = os.path.join(UPLOAD_DIR, filename)
-    try:
-        os.makedirs(UPLOAD_DIR, exist_ok=True)
-        await anyio.Path(file_path).write_bytes(data)
-    except OSError as exc:
-        logger.error(f"Error saving uploaded about-page image {filename}: {exc}")
+    image_id = str(uuid.uuid4())
+    result = await db_ops.execute_one(
+        insert(AboutImages).values(
+            pkid=image_id, content_type=file_to_upload.content_type, data=data
+        )
+    )
+    if is_db_error(result):
+        logger.error(f"Error saving uploaded about-page image {image_id}: {result}")
         return JSONResponse(
             {"success": False, "message": "Failed to save the uploaded image"},
             status_code=500,
         )
 
-    logger.info(f"About page image uploaded: {filename}")
-    return JSONResponse({"success": True, "url": f"/statics/uploads/about/{filename}"})
+    logger.info(f"About page image uploaded: {image_id}")
+    return JSONResponse({"success": True, "url": f"/about/images/{image_id}"})
+
+
+@router.post("/generate-from-resume")
+async def generate_from_resume(
+    resume_file: UploadFile | None = File(None),
+    resume_text: str = Form(""),
+    voice: str = Form("first"),
+    focus: str = Form(""),
+    user_info: dict = Depends(check_login),
+):
+    """
+    Drafts About-page HTML from a résumé (uploaded file, or pasted text when
+    no file is given) for the editor to load. Never saves anything: the
+    draft only replaces the stored page once it's reviewed and saved
+    through POST /about/edit like any other edit.
+    """
+    if resume_file is not None and resume_file.filename:
+        data = await resume_file.read()
+        if len(data) > MAX_UPLOAD_BYTES:
+            return JSONResponse(
+                {"success": False, "message": "File is too large (5 MB max)"},
+                status_code=413,
+            )
+        try:
+            text = extract_resume_text(resume_file.filename, data)
+        except ResumeReadError as ex:
+            return JSONResponse({"success": False, "message": str(ex)}, status_code=400)
+    else:
+        text = resume_text.strip()[:MAX_RESUME_CHARS]
+
+    if not text:
+        return JSONResponse(
+            {"success": False, "message": "Upload a résumé or paste its text."},
+            status_code=400,
+        )
+
+    try:
+        about = await ai.get_about_from_resume(text, voice=voice, focus=focus)
+    except RuntimeError as ex:
+        # require_client(): openai not installed or OPENAI_KEY missing.
+        logger.warning(f"About page generation unavailable: {ex}")
+        return JSONResponse(
+            {"success": False, "message": "AI is not configured on this server."},
+            status_code=503,
+        )
+    except Exception as ex:
+        # Timeouts, API errors, or unparseable JSON from the model. Logged in
+        # full; the browser only gets a generic message.
+        logger.error(f"About page generation failed: {type(ex).__name__}: {ex}")
+        return JSONResponse(
+            {"success": False, "message": "The AI request failed. Try again."},
+            status_code=502,
+        )
+
+    if not about["sections"] and not about["intro"]:
+        return JSONResponse(
+            {"success": False, "message": "The AI returned an empty draft. Try again."},
+            status_code=502,
+        )
+
+    html = templates.get_template("about/generated.html").render(about=about)
+    logger.info(f"About page draft generated ({len(about['sections'])} sections)")
+    return JSONResponse({"success": True, "html": html})
+
+
+@router.get("/images/{image_id}", responses={404: {"description": "No such image"}})
+async def get_about_image(image_id: str):
+    """
+    Serves an uploaded About image publicly (the stored page HTML links to it).
+
+    Each upload has a fresh id and rows are never rewritten, so the response
+    is cached immutably; `nosniff` is set because the content type came from
+    the uploading client.
+    """
+    image = safe_record(
+        await db_ops.read_one_record(
+            Select(AboutImages).where(AboutImages.pkid == image_id)
+        )
+    )
+    if image is None:
+        raise HTTPException(status_code=404)
+    # Each upload gets a fresh id and rows are never rewritten, so a given
+    # URL's bytes never change - safe to let browsers cache it forever.
+    # nosniff because content_type came from the uploading client.
+    return Response(
+        content=image.data,
+        media_type=image.content_type,
+        headers={
+            "Cache-Control": "public, max-age=31536000, immutable",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )

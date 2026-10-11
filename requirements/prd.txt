@@ -1,19 +1,12 @@
-# Essential to boot the app (FastAPI + DB + auth). Everything else is
-# commented out while evaluating a possible move to Robyn - uncomment as
-# needed for local feature work.
-alembic==1.20.0 # From 1.13.3 | Vulnerabilities: None
-cryptography==50.0.1 # From 50.0.0 | Vulnerabilities: None
-devsetgo-lib[sqlite,postgres]==2026.7.23.1 # Vulnerabilities: None
-fastapi[all]==0.141.1 # From 0.115.3 | Vulnerabilities: None
-
-# granian==1.6.1 # Vulnerabilities: None — uvicorn is the server actually used
-nameparser==2.1.0 # Vulnerabilities: None — AI mood/tag analysis (src/functions/ai.py)
-openai==2.53.0 # Vulnerabilities: None — AI analysis + youtube helper
-pydantic[email]==2.13.5 # Vulnerabilities: None
+alembic==1.20.0 # Vulnerabilities: None
+cryptography==50.0.2 # From 50.0.1 | Vulnerabilities: None
+devsetgo-lib[sqlite]==2026.9.26.1 # Vulnerabilities: None
+fastapi[all]==0.143.0 # From 0.141.1 | Vulnerabilities: None
+markdown-it-py==4.2.0 # Vulnerabilities: None
+nameparser==2.3.0 # Vulnerabilities: None
+nh3==0.3.7 # Vulnerabilities: None
+openai==3.28.0 # From 3.19.2 | Vulnerabilities: None
+pydantic[email]==2.14.0 # From 2.13.5 | Vulnerabilities: None
+pypdf==6.20.0 # Vulnerabilities: None
 python-dateutil==2.9.0.post0 # Vulnerabilities: None
-webauthn==3.0.0 # Vulnerabilities: None
-# selenium==4.46.0 # Vulnerabilities: None — link screenshot capture
-# silly==1.1.0 # Vulnerabilities: None — demo data seeding
-# tqdm==4.66.5 # Vulnerabilities: None — progress bars in import/metrics
-# unsync==1.4.0 # Vulnerabilities: None — async helper in link_preview
-# webdriver-manager==4.1.2 # Vulnerabilities: None — chromedriver management
+webauthn==3.0.1 # Vulnerabilities: None

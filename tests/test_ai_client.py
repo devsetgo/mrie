@@ -97,10 +97,9 @@ def test_require_client_names_the_feature_and_the_reason(fake_openai, monkeypatc
     "call,feature",
     [
         (lambda: ai.get_analysis(content="An entry."), "note analysis"),
-        (lambda: ai.get_url_summary("https://example.com/page"), "URL summary"),
-        (lambda: ai.get_url_title("https://example.com/page"), "URL title"),
+        (lambda: ai.get_link_analysis("https://example.com/page"), "link analysis"),
     ],
-    ids=["get_analysis", "get_url_summary", "get_url_title"],
+    ids=["get_analysis", "get_link_analysis"],
 )
 def test_ai_entry_points_raise_a_clear_error_without_a_client(
     fake_openai, monkeypatch, call, feature
@@ -108,5 +107,58 @@ def test_ai_entry_points_raise_a_clear_error_without_a_client(
     # Not an AttributeError from calling into `None`.
     monkeypatch.setattr(ai.settings, "openai_key", None)
 
+    coroutine = call()
     with pytest.raises(RuntimeError, match=f"{feature}.*disabled.*OPENAI_KEY"):
-        asyncio.run(call())
+        asyncio.run(coroutine)
+
+
+def test_shape_about_content_coerces_bad_model_output():
+    shaped = ai._shape_about_content(
+        {
+            "headline": "  Hello  ",
+            "intro": "one paragraph as a string",
+            "sections": [
+                {"heading": "Kept", "paragraphs": ["p"], "highlights": "solo"},
+                {"heading": "", "paragraphs": ["no heading"]},
+                {"heading": "No body", "paragraphs": [], "highlights": []},
+                "not a dict",
+            ],
+        }
+    )
+    assert shaped == {
+        "headline": "Hello",
+        "intro": ["one paragraph as a string"],
+        "sections": [{"heading": "Kept", "paragraphs": ["p"], "highlights": ["solo"]}],
+    }
+
+
+def test_shape_about_content_handles_missing_keys():
+    assert ai._shape_about_content({}) == {"headline": "", "intro": [], "sections": []}
+
+
+def test_get_about_from_resume_sends_voice_and_focus(fake_openai, monkeypatch):
+    import asyncio
+    import json
+    from types import SimpleNamespace
+
+    sent = {}
+
+    async def create(**kwargs):
+        sent.update(kwargs)
+        body = {"headline": "H", "intro": ["i"], "sections": []}
+        message = SimpleNamespace(content=json.dumps(body))
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
+    monkeypatch.setattr(ai, "require_client", lambda feature: client)
+
+    result = asyncio.run(
+        ai.get_about_from_resume("CV text", voice="third", focus="Python")
+    )
+
+    assert result == {"headline": "H", "intro": ["i"], "sections": []}
+    assert "third person" in sent["messages"][0]["content"]
+    assert "Python" in sent["messages"][1]["content"]
+    assert sent["response_format"] == {"type": "json_object"}

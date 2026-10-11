@@ -249,3 +249,35 @@ def test_bulk_import_skips_repeated_header_row(logged_in_client):
     # The header-as-data note shows up with its mood ("Mood") as the card title.
     listing = logged_in_client.get("/notes/pagination")
     assert "<strong>Mood</strong>" not in listing.text
+
+
+@pytest.mark.parametrize("bad_date", ["not-a-date", ""], ids=["garbled", "empty"])
+def test_bulk_import_simple_format_survives_an_unparseable_date(
+    logged_in_client, mock_note_ai, bad_date
+):
+    # A blank or garbled date used to be stored as date_created=None,
+    # overriding the column default; it now falls back to "now", so the note
+    # is imported and shows up in a range ending today.
+    csv_content = (
+        f'my_note,mood,date_created\n"Row with a bad date.",positive,{bad_date}\n'
+    )
+    response = logged_in_client.post(
+        "/notes/bulk",
+        files={"csv_file": ("notes.csv", csv_content, "text/csv")},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    from datetime import datetime, timezone
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    listing = logged_in_client.get(
+        "/notes/pagination",
+        params={
+            "start_date": today,
+            "end_date": today,
+            "search_term": "ai-import-marker-xyz",
+        },
+    )
+    assert listing.status_code == 200
+    assert "ai-import-marker-xyz" in listing.text

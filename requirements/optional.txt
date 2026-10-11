@@ -1,0 +1,4 @@
+selenium==4.51.0 # From 4.46.0 | Vulnerabilities: None
+silly==1.1.0 # Vulnerabilities: None
+tqdm==4.70.1 # Vulnerabilities: None
+webdriver-manager==4.1.2 # Vulnerabilities: None

@@ -6,9 +6,9 @@ mrie owns its own private database - this is no longer a shared schema with
 devsetgo.com (dsg). Table structure originated as a port of dsg's
 src/db_tables.py (kept for continuity while notes are imported from dsg's
 export), but mrie is free to evolve its own schema independently from here
-on. Schema is managed by Alembic (see alembic/) for Postgres; SQLite (tests,
-and make run-dev-workers's file-based driver) still uses create_tables() on
-boot (see resources.py::startup_event() for why).
+on. Schema is managed by Alembic (see alembic/) for the SQLite file
+database; the in-memory test database uses create_tables() on boot instead
+(see resources.py::startup_event()).
 """
 
 import re
@@ -21,16 +21,12 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
-    Index,
     Integer,
     LargeBinary,
     String,
     event,
-    func,
 )
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import class_mapper, relationship
-from sqlalchemy.orm import declarative_base as _declarative_base
 
 from .db_init import async_db
 from .functions.encrypt import (
@@ -39,14 +35,8 @@ from .functions.encrypt import (
     decrypt_text,
     encrypt_text,
 )
-from .settings import settings
 
-if settings.is_postgres:
-    schema_base = base_schema.SchemaBasePostgres
-elif settings.db_driver.startswith("sqlite"):
-    schema_base = base_schema.SchemaBaseSQLite
-else:
-    raise ValueError("Untested database driver")
+schema_base = base_schema.SchemaBaseSQLite
 
 CASCADE_ALL_DELETE = "all,delete"
 USERS_PKID_FK = "users.pkid"
@@ -122,8 +112,8 @@ class WebLinks(schema_base, async_db.Base):
     __tableargs__ = {"comment": "Interesting things that the user finds"}
 
     title = Column(String, unique=False, index=True)
-    summary = Column(String, unique=False, index=True)
-    comment = Column(String, unique=False, index=True)
+    summary = Column(String, unique=False)
+    comment = Column(String, unique=False)
     url = Column(String, unique=False, index=True)
     category = Column(String, unique=False, index=True)
     public = Column(Boolean, default=False)
@@ -157,6 +147,11 @@ class WebLinks(schema_base, async_db.Base):
         )
 
 
+# Placeholder title/summary while a link's AI analysis runs in the
+# background (see src/functions/link_analysis.py).
+WEBLINK_PROCESSING = "Processing"
+
+
 def compute_weblink_ai_fix(*, image_preview_data, title, summary) -> bool:
     """
     Same rule as `WebLinks.update_ai_fix()`/the before_insert/before_update
@@ -165,8 +160,16 @@ def compute_weblink_ai_fix(*, image_preview_data, title, summary) -> bool:
     Core-level `insert()`/`update()` statement - those bypass SQLAlchemy's
     ORM mapper events entirely (they only fire for `session.add()`/flush),
     so the listeners below silently would not run for that path.
+
+    A "Processing" placeholder counts as missing: otherwise the screenshot
+    step, which recomputes this, would clear the flag on a link whose AI
+    analysis never actually filled in its title/summary.
     """
-    return image_preview_data is None or title is None or summary is None
+    return (
+        image_preview_data is None
+        or title in (None, WEBLINK_PROCESSING)
+        or summary in (None, WEBLINK_PROCESSING)
+    )
 
 
 @event.listens_for(WebLinks, "before_insert")
@@ -209,22 +212,16 @@ class NoteMetrics(schema_base, async_db.Base):
     metrics = Column(JSON)
     users = relationship("Users", back_populates="note_metrics")
 
-    if not settings.is_postgres:
-        # SQLite (tests, and make run-dev-workers's file-based driver) has
-        # no materialized views - these scalar aggregates stay ordinary
-        # columns here. On Postgres they live in the note_metrics_scalars
-        # materialized view instead - see NoteMetricsScalars below and
-        # alembic/versions/<rev>_note_metrics_scalars_view.py. Field names
-        # here must match NOTE_METRICS_SCALAR_FIELDS below and
-        # NoteMetricsScalars' own columns exactly - notes_metrics.py builds
-        # its insert/update/fallback dicts from that shared list rather
-        # than repeating the six names again.
-        word_count = Column(Integer, default=0)
-        character_count = Column(Integer, default=0)
-        note_count = Column(Integer, default=0)
-        mood_metric = Column(JSON)
-        ai_fix_count = Column(Integer, default=0)
-        total_unique_tag_count = Column(Integer, default=0)
+    # Plain scalar aggregates, recomputed from `notes` by
+    # functions/notes_metrics.py::update_notes_metrics(). Field names must
+    # match NOTE_METRICS_SCALAR_FIELDS below - notes_metrics.py builds its
+    # insert/update dict from that list.
+    word_count = Column(Integer, default=0)
+    character_count = Column(Integer, default=0)
+    note_count = Column(Integer, default=0)
+    mood_metric = Column(JSON)
+    ai_fix_count = Column(Integer, default=0)
+    total_unique_tag_count = Column(Integer, default=0)
 
     def to_dict(self):
         return {
@@ -233,9 +230,7 @@ class NoteMetrics(schema_base, async_db.Base):
 
 
 # Single source of truth for NoteMetrics' six plain scalar aggregate field
-# names, shared between the conditional Column block above, NoteMetricsScalars
-# below, and notes_metrics.py's dict-building code - see the comment on the
-# conditional Column block above for why keeping these in sync matters.
+# names, shared with notes_metrics.py's dict-building code.
 NOTE_METRICS_SCALAR_FIELDS = (
     "word_count",
     "character_count",
@@ -246,45 +241,6 @@ NOTE_METRICS_SCALAR_FIELDS = (
 )
 
 
-# A deliberately separate declarative base (not async_db.Base) - this maps
-# a read-only materialized view, not a table Alembic/create_tables() should
-# ever try to CREATE TABLE for. Keeping it off async_db.Base's metadata
-# means `alembic revision --autogenerate` never mistakes the view for a
-# missing table. Never insert/update through this class - its data only
-# ever changes via REFRESH MATERIALIZED VIEW (see
-# notes_metrics.py::update_notes_metrics()).
-#
-# Defined unconditionally, regardless of settings.is_postgres: it lives on
-# its own isolated declarative base, so its mere existence can never cause
-# SQLite's create_tables() (which only walks async_db.Base.metadata) to
-# attempt a "note_metrics_scalars" table, and importing JSONB doesn't
-# require an actual Postgres connection - it's a plain type descriptor.
-# Only *querying* this class is gated behind settings.is_postgres
-# (get_or_refresh() in notes_metrics.py); leaving the class itself always
-# real (never None) avoids a class-of-bug where a future call site that
-# forgets that guard gets a confusing "NoneType is not callable" instead
-# of a clear error, and lets this class's coverage be exercised under any
-# driver.
-_ViewBase = _declarative_base()
-
-
-class NoteMetricsScalars(_ViewBase):
-    __tablename__ = "note_metrics_scalars"
-
-    user_id = Column(String, primary_key=True)
-    word_count = Column(Integer)
-    character_count = Column(Integer)
-    note_count = Column(Integer)
-    ai_fix_count = Column(Integer)
-    total_unique_tag_count = Column(Integer)
-    mood_metric = Column(JSONB)
-
-    def to_dict(self):
-        return {
-            c.key: getattr(self, c.key) for c in class_mapper(self.__class__).columns
-        }
-
-
 class Notes(schema_base, async_db.Base):
     __tablename__ = "notes"
     __tableargs__ = {"comment": "Notes that the user writes"}
@@ -292,7 +248,7 @@ class Notes(schema_base, async_db.Base):
     mood = Column(String(500), unique=False, index=True)
     mood_analysis = Column(String(500), unique=False, index=True)
     _note = Column(LargeBinary, unique=False, nullable=False)
-    _summary = Column(LargeBinary, unique=False, index=True)
+    _summary = Column(LargeBinary, unique=False)
     tags = Column(JSON)
     word_count = Column(Integer)
     character_count = Column(Integer)
@@ -300,14 +256,6 @@ class Notes(schema_base, async_db.Base):
     user_id = Column(String, ForeignKey(USERS_PKID_FK), nullable=False, index=True)
     users = relationship("Users", back_populates="notes")
     demo_created = Column(Integer, default=0, index=True)
-
-    if settings.is_postgres:
-        __table_args__ = (
-            Index("ix_notes__note_hash", func.md5(_note)),
-            {"schema": "public"},
-        )
-    else:
-        __table_args__ = ()
 
     def to_dict(self):
         data = {
@@ -418,6 +366,22 @@ class AboutPage(schema_base, async_db.Base):
     __tableargs__ = {"comment": "Singleton public About page content, admin-editable"}
 
     content = Column(String, nullable=False, default="")
+
+    def to_dict(self):
+        return {
+            c.key: getattr(self, c.key) for c in class_mapper(self.__class__).columns
+        }
+
+
+class AboutImages(schema_base, async_db.Base):
+    # Stored in the DB rather than on disk so the one SQLite file is the
+    # whole site's state and a single backup captures the images too - see
+    # src/endpoints/about.py's module docstring.
+    __tablename__ = "about_images"
+    __tableargs__ = {"comment": "Images uploaded via the About page editor"}
+
+    content_type = Column(String(50), nullable=False)
+    data = Column(LargeBinary, nullable=False)
 
     def to_dict(self):
         return {

@@ -1,5 +1,5 @@
 <div class="col-md-12">
     <label>Note:</label>
     <br>
-    <div id="noteDisplay">{{ note.note|safe }}</div>
+    <div id="noteDisplay">{{ note.note | sanitize_html }}</div>
 </div>

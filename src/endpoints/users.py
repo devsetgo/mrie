@@ -163,7 +163,7 @@ async def dev_login(request: Request):
     request.session["is_admin"] = True
     request.session["timezone"] = admin_user.my_timezone
 
-    session_duration = timedelta(minutes=settings.max_age)
+    session_duration = timedelta(seconds=settings.max_age)
     request.session["exp"] = (datetime.now() + session_duration).timestamp()
 
     return RedirectResponse(url="/notes", status_code=303)
@@ -189,6 +189,14 @@ async def login_options(request: Request):
     },
 )
 async def login_verify(request: Request):
+    """
+    Second step of the passkey login: verifies the signed challenge from
+    `/login/begin` against the stored credential and, only if it matches and
+    belongs to the admin identity, starts the session.
+
+    The challenge is popped from the session first, so it can be used once
+    whether or not verification succeeds.
+    """
     challenge_b64 = request.session.pop(CHALLENGE_SESSION_KEY, None)
     if challenge_b64 is None:
         raise HTTPException(status_code=400, detail="No pending challenge")
@@ -253,7 +261,7 @@ async def login_verify(request: Request):
     request.session["is_admin"] = True
     request.session["timezone"] = user.my_timezone
 
-    session_duration = timedelta(minutes=settings.max_age)
+    session_duration = timedelta(seconds=settings.max_age)
     request.session["exp"] = (datetime.now() + session_duration).timestamp()
 
     logger.info(f"Successful passkey login for {user.user_name}")
@@ -371,7 +379,8 @@ async def register_verify(request: Request):
     return {"status": "ok"}
 
 
-@router.get("/logout")
+# POST so another site can't log the admin out with a link or an <img>.
+@router.post("/logout")
 async def logout(request: Request):
     user_identifier = request.session.get("user_identifier", None)
     request.session.clear()

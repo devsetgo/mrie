@@ -29,17 +29,16 @@ Usage:
     This module is designed to be integrated into a FastAPI application, providing a backend API for listing weblinks. It can be used in web applications that require content curation and discovery features, with the ability to filter and paginate through large sets of data.
 """
 
-import asyncio
 import html
 import uuid
 from base64 import b64encode
-from datetime import datetime
 
 from fastapi import (
     APIRouter,
     BackgroundTasks,
     Depends,
     File,
+    HTTPException,
     Path,
     Query,
     Request,
@@ -49,12 +48,13 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from loguru import logger
 from sqlalchemy import Select, asc, delete, func, insert, or_, update
 
-from ..db_tables import Categories, WebLinks, compute_weblink_ai_fix
-from ..functions import ai, date_functions, link_import, link_preview
+from ..db_tables import WEBLINK_PROCESSING, Categories, WebLinks
+from ..functions import date_functions, link_analysis, link_import, link_preview
 from ..functions.db_guards import is_db_error
 from ..functions.db_guards import safe_list as _safe_list
 from ..functions.db_guards import safe_record as _safe_record
 from ..functions.login_required import check_login
+from ..functions.page_fetch import normalize_link_url
 from ..functions.pagination import build_page_url
 from ..functions.youtube_helper import extract_youtube_video_id, is_youtube_url
 from ..resources import db_ops, templates
@@ -64,6 +64,7 @@ router = APIRouter()
 ERROR_404_URL = "/error/404"
 ERROR_418_URL = "/error/418"
 DEFAULT_TIMEZONE = "America/New_York"
+INVALID_URL_MESSAGE = "Link URLs must start with http:// or https://"
 
 
 # api endpoints
@@ -130,17 +131,24 @@ async def get_categories(user_info: dict = Depends(check_login)):
     return cat_list
 
 
-@router.get("/pagination")
+@router.get(
+    "/pagination",
+    responses={400: {"description": "start_date or end_date is not YYYY-MM-DD"}},
+)
 async def read_weblinks_pagination(
     request: Request,
     search_term: str = Query(None, description="Search term"),
     start_date: str = Query(None, description="Start date"),
     end_date: str = Query(None, description="End date"),
     category: str = Query(None, description="Category"),
-    page: int = Query(1, description="Page number"),
-    limit: int = Query(12, description="Number of weblinks per page"),
+    page: int = Query(1, ge=1, description="Page number"),
+    limit: int = Query(12, ge=1, le=500, description="Number of weblinks per page"),
     user_info: dict = Depends(check_login),
 ):
+    """
+    HTML fragment (htmx) with one page of links, filtered by search term,
+    category and (inclusive) date range, newest first.
+    """
     query_params = {
         "search_term": search_term,
         "start_date": start_date,
@@ -165,11 +173,15 @@ async def read_weblinks_pagination(
     )
 
     # filter by date range
-    if start_date and end_date:
-        start_date = datetime.strptime(start_date, "%Y-%m-%d")
-        end_date = datetime.strptime(end_date, "%Y-%m-%d")
+    if start_date or end_date:
+        try:
+            start_dt, end_dt = date_functions.filter_date_range(start_date, end_date)
+        except ValueError:
+            raise HTTPException(
+                status_code=400, detail="Dates must be in YYYY-MM-DD format"
+            ) from None
         query = query.where(
-            (WebLinks.date_created >= start_date) & (WebLinks.date_created <= end_date)
+            (WebLinks.date_created >= start_dt) & (WebLinks.date_created < end_dt)
         )
     if category:
         query = query.where(WebLinks.category == category)
@@ -245,52 +257,52 @@ async def new_link(request: Request, user_info: dict = Depends(check_login)):
     )
 
 
-@router.post("/new")
+@router.post(
+    "/new",
+    responses={400: {"description": "The URL is not an absolute http(s) URL"}},
+)
 async def create_link(
     background_tasks: BackgroundTasks,
     request: Request,
     user_info: dict = Depends(check_login),
 ):
+    """
+    Saves a new link and returns immediately.
+
+    Title and summary are filled in afterwards by `process_link_background`
+    (page fetch plus one AI call), so the row holds the processing placeholder
+    until then and the view page refreshes itself. The URL must be an absolute
+    http(s) URL (400 otherwise).
+    """
     user_identifier = user_info["user_identifier"]
 
     form = await request.form()
     category = form["category"]
-    url = form["url"]
+    url = normalize_link_url(form["url"])
     comment = form["comment"]
+
+    if url is None:
+        raise HTTPException(status_code=400, detail=INVALID_URL_MESSAGE)
 
     if comment == "":
         comment = None
 
     logger.debug(f"Received category: {category} and content: {url}")
 
-    # Get summary from OpenAI - degrade to a "Processing" placeholder rather
-    # than 500ing when openai isn't installed/configured (the documented
-    # default per CLAUDE.md's optional-dependency pattern); the CSV bulk
-    # import flow already uses this same placeholder/ai_fix convention.
-    try:
-        summary, title = await asyncio.gather(
-            ai.get_url_summary(url=url, sentence_length=20), ai.get_url_title(url=url)
-        )
-        logger.debug(f"Received summary from AI: {summary}")
-    except RuntimeError as exc:
-        logger.warning(f"AI summary/title unavailable, using placeholder: {exc}")
-        summary = {"summary": "Processing"}
-        title = "Processing"
-
-    # Create the post
+    # Title/summary are filled in by process_link_background after the
+    # response goes out - fetching the page and the OpenAI call together
+    # can take several seconds. The view page auto-refreshes until then.
     new_pkid = str(uuid.uuid4())
     result = await db_ops.execute_one(
         insert(WebLinks).values(
             pkid=new_pkid,
-            title=title,
-            summary=summary["summary"],
+            title=WEBLINK_PROCESSING,
+            summary=WEBLINK_PROCESSING,
             comment=comment,
             url=url,
             user_id=user_identifier,
             category=category,
-            ai_fix=compute_weblink_ai_fix(
-                image_preview_data=None, title=title, summary=summary["summary"]
-            ),
+            ai_fix=True,
         )
     )
     if is_db_error(result):
@@ -300,7 +312,7 @@ async def create_link(
     logger.info(f"Created weblinks with ID: {new_pkid}")
 
     background_tasks.add_task(
-        link_preview.capture_full_page_screenshot, url=url, pkid=new_pkid
+        link_analysis.process_link_background, pkid=new_pkid, url=url
     )
     return RedirectResponse(url=f"/weblinks/view/{new_pkid}", status_code=303)
 
@@ -370,62 +382,35 @@ async def view_weblink(
     )
 
 
-@router.get("/update/{pkid}")
+# POST for the same reason as /notes/ai-fix: it queues page fetches and a
+# paid OpenAI call, so a cross-site link must not be able to trigger it.
+@router.post("/update/{pkid}")
 async def edit_weblink(
     background_tasks: BackgroundTasks,
     pkid: str,
     request: Request,
     user_info: dict = Depends(check_login),
 ):
+    """
+    Re-runs title/summary analysis for an existing link (POST-only).
+
+    The current values stay until the new ones are saved, and stay for good if
+    AI is unavailable.
+    """
     existing = _safe_record(
         await db_ops.read_one_record(Select(WebLinks).where(WebLinks.pkid == pkid))
     )
     if existing is None:
         logger.warning(f"No weblink found with ID: {pkid}")
-        return RedirectResponse(url=ERROR_404_URL, status_code=302)
+        return RedirectResponse(url=ERROR_404_URL, status_code=303)
 
-    existing = existing.to_dict()
+    url = existing.url
+    logger.debug(f"Re-analyzing link {pkid}")
 
-    url = existing["url"]
-
-    logger.debug(f"Editing content for URL: {url}")
-
-    # Get summary from OpenAI - fall back to the existing title/summary
-    # rather than 500ing when openai isn't installed/configured (the
-    # documented default per CLAUDE.md's optional-dependency pattern).
-    try:
-        summary, title = await asyncio.gather(
-            ai.get_url_summary(url=url, sentence_length=20), ai.get_url_title(url=url)
-        )
-        logger.debug(f"Received summary from AI: {summary}")
-    except RuntimeError as exc:
-        logger.warning(f"AI summary/title unavailable, keeping existing: {exc}")
-        summary = {"summary": existing["summary"]}
-        title = existing["title"]
-    weblink_update = {
-        "title": title,
-        "summary": summary["summary"],
-        "ai_fix": compute_weblink_ai_fix(
-            image_preview_data=existing["image_preview_data"],
-            title=title,
-            summary=summary["summary"],
-        ),
-    }
-
-    result = await db_ops.execute_one(
-        update(WebLinks).where(WebLinks.pkid == pkid).values(**weblink_update)
-    )
-
-    if is_db_error(result):
-        logger.error(f"Error updating link: {result}")
-        return RedirectResponse(url=ERROR_418_URL, status_code=302)
-
-    logger.info(f"Updated weblinks with ID: {pkid}")
-
-    background_tasks.add_task(
-        link_preview.capture_full_page_screenshot, url=url, pkid=pkid
-    )
-    return RedirectResponse(url=f"/weblinks/view/{pkid}", status_code=302)
+    # Re-analysis runs in the background; the current title/summary stay
+    # until it succeeds (and stay for good if AI is unavailable).
+    background_tasks.add_task(link_analysis.process_link_background, pkid=pkid, url=url)
+    return RedirectResponse(url=f"/weblinks/view/{pkid}", status_code=303)
 
 
 @router.get("/update/comment/{pkid}")
@@ -462,18 +447,45 @@ async def get_update_comment(
     )
 
 
-@router.post("/update/comment/{pkid}")
+@router.post(
+    "/update/comment/{pkid}",
+    responses={
+        400: {"description": "A required field is missing or the URL is not http(s)"}
+    },
+)
 async def update_comment(
     background_tasks: BackgroundTasks,
     pkid: str,
     request: Request,
     user_info: dict = Depends(check_login),
 ):
+    """
+    Saves edits to a link's comment, URL, category and visibility.
+
+    Only a changed URL queues re-analysis and a new screenshot, because the
+    stored title, summary and preview describe the old page; a comment or
+    category edit leaves them valid.
+    """
     form = await request.form()
+    # A missing field is the client's mistake: 400, not a KeyError -> 500.
+    if any(field not in form for field in ("comment", "url", "category")):
+        raise HTTPException(
+            status_code=400, detail="comment, url and category are required"
+        )
     comment = form["comment"]
-    url = form["url"]
+    url = normalize_link_url(form["url"])
     category = form["category"]
     public = form.get("public") is not None
+    if url is None:
+        raise HTTPException(status_code=400, detail=INVALID_URL_MESSAGE)
+
+    existing = _safe_record(
+        await db_ops.read_one_record(Select(WebLinks).where(WebLinks.pkid == pkid))
+    )
+    if existing is None:
+        logger.warning(f"No weblink found with ID: {pkid}")
+        return RedirectResponse(url=ERROR_404_URL, status_code=303)
+    url_changed = existing.url != url
     logger.debug(
         f"Received comment: {comment}, url: {url}, category: {category}, public: {public}"
     )
@@ -494,9 +506,14 @@ async def update_comment(
         return RedirectResponse(url=ERROR_418_URL, status_code=303)
 
     logger.info(f"Updated weblinks with ID: {pkid}")
-    background_tasks.add_task(
-        link_preview.capture_full_page_screenshot, url=url, pkid=pkid
-    )
+    if url_changed:
+        # The stored title, summary and preview describe the old page. Only
+        # a new URL needs this: a comment/category edit leaves them valid.
+        # process_link_background never raises and tolerates a missing
+        # selenium, unlike scheduling the screenshot directly.
+        background_tasks.add_task(
+            link_analysis.process_link_background, pkid=pkid, url=url
+        )
     return RedirectResponse(url=f"/weblinks/view/{pkid}", status_code=303)
 
 

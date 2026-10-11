@@ -11,10 +11,10 @@
       <div class="card mb-3 shadow-sm">
         <div class="card-body">
           <h5 class="card-title">
-            <a href="/weblinks/view/{{ data.pkid }}" class="text">{{ data.title|title }}</a>
+            <a href="/weblinks/view/{{ data.pkid }}" class="text">{{ data.title }}</a>
           </h5>
           <p class="card-text">
-            URL: <a href="{{ data.url|default('#') }}" target="_blank" class="text-primary">Link</a>
+            URL: <a href="{{ data.url | safe_href }}" target="_blank" rel="noopener noreferrer" class="text-primary">Link</a>
           </p>
           <p class="card-text">{% if data.summary != None %}{{ data.summary|truncate(50, end='...') }}{% endif %}</p>
           <p class="card-text">

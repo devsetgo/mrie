@@ -8,34 +8,11 @@ jobs:
     runs-on: ubuntu-latest
     # Skip SonarCloud for Dependabot PRs (secrets not available)
     if: github.actor != 'dependabot[bot]'
-    services:
-      # Not used by the pytest run itself (that stays on DB_DRIVER: memory,
-      # below) - this backs the "Apply Alembic migrations" step only, so CI
-      # actually exercises the Postgres-only migrations (e.g. the
-      # NoteMetrics materialized view) at least once.
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_USER: ci
-          POSTGRES_PASSWORD: ci
-          POSTGRES_DB: ci
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     env:
       DB_DRIVER: memory
       RELEASE_ENV: test
       DEV_FAKE_LOGIN_ENABLED: "True"
       HTTPS_ONLY: "False"
-      DB_USERNAME: ci
-      DB_PASSWORD: ci
-      DB_HOST: localhost
-      DB_PORT: "5432"
-      DB_NAME: ci
       PHRASE: ci-test-phrase-not-a-real-secret
       SALT: ci-test-salt-not-a-real-secret
       ADMIN_USER: ci-admin
@@ -62,10 +39,15 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements/dev.txt
 
-      - name: Apply Alembic migrations against CI Postgres
-        run: alembic upgrade head
+      # The pytest run uses the in-memory DB (create_tables()), so this is
+      # the only place CI exercises the real migration path production
+      # takes - and `alembic check` fails if a model change was committed
+      # without its migration.
+      - name: Apply Alembic migrations to a scratch SQLite file
+        run: alembic upgrade head && alembic check
         env:
-          DB_DRIVER: postgres
+          DB_DRIVER: sqlite
+          DB_DIRECTORY: ${{ runner.temp }}/ci-db
 
       - name: Run tests and generate coverage.xml
         # pyproject.toml's own pytest addopts already include

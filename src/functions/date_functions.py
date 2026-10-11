@@ -13,12 +13,43 @@ Author:
     MIT Licensed
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, available_timezones
 
 from loguru import logger
 
 TIMEZONES = sorted(available_timezones())
+
+FILTER_DATE_FORMAT = "%Y-%m-%d"
+_EARLIEST_FILTER_DATE = datetime(2011, 1, 1)
+
+
+def filter_date_range(start_date, end_date):
+    """
+    Turns the list filters' "YYYY-MM-DD" start/end strings into a half-open
+    `[start, end)` pair of naive UTC datetimes for
+    `col >= start AND col < end`.
+
+    The end bound is the *day after* `end_date`: it used to be midnight at
+    the start of `end_date` with `<=`, which silently dropped everything
+    created on the day the user picked as the last day.
+
+    Either argument may be empty; a missing start is the earliest possible
+    date and a missing end is "now" plus a couple of days of slack.
+
+    Raises:
+        ValueError: a non-empty value isn't a valid YYYY-MM-DD date.
+    """
+    start = (
+        datetime.strptime(start_date, FILTER_DATE_FORMAT)
+        if start_date
+        else _EARLIEST_FILTER_DATE
+    )
+    if end_date:
+        end = datetime.strptime(end_date, FILTER_DATE_FORMAT) + timedelta(days=1)
+    else:
+        end = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=2)
+    return start, end
 
 
 def timezone_update(
