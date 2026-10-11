@@ -556,6 +556,22 @@ over, notes get re-imported through the CSV import.
   POST-only.
 - `.env.sample` ships production values (`RELEASE_ENV=prd`).
 
+## Correctness and error-handling fixes from the PR check (2026-10-11)
+
+- "Today in history" now matches an explicit list of `MM-DD` days, so it
+  works across month/year ends (it was empty for about `2 x range` days
+  around every month end), using the user's timezone.
+- List date filters share `date_functions.filter_date_range()`: the end
+  date is inclusive, one bound alone is allowed, bad dates are 400, and
+  `page`/`limit` are bounded (422 instead of a ZeroDivisionError 500).
+- `url_status` returns False for a dead host (it used to show "Link
+  Working"); editing a link's URL re-runs analysis, a comment-only edit
+  doesn't; the CSV screenshot loop no longer dies on the first failure.
+- The simple-CSV note import falls back to "now" for a bad date.
+- Screenshots need selenium and Chrome, neither of which is in the Docker
+  image, so production simply has no previews. Open decision: bake Chrome
+  into the image (about 400 MB) if previews are wanted there.
+
 ## Decisions
 
 1. **Login mechanism**: Resolved — WebAuthn/passkey, see Phase 1.

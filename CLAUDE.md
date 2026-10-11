@@ -217,7 +217,10 @@ no-op fallbacks for `tqdm`; `ai.py`, `youtube_helper.py`,
 ImportError` and either no-op or raise a clear `RuntimeError` at
 *call time* (for OpenAI, `get_client()`/`require_client()` in `ai.py` build the
 client lazily and say separately whether the package or `OPENAI_KEY` is
-missing). The app must always boot and serve pages with none of these
+missing). Screenshot capture needs `selenium` *and* a Chrome binary at
+`/usr/bin/google-chrome`; the production image has neither, so previews
+are simply skipped there (logged once, never an error). The app must
+always boot and serve pages with none of these
 installed — when adding a new optional integration, follow this same
 pattern rather than a hard top-level import.
 
