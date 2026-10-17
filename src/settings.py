@@ -29,6 +29,13 @@ from . import __version__
 # instead of accidentally exposing something dev-only.
 _DEV_ENVIRONMENTS = {"test", "dev", "local", "development"}
 
+# The marker deploy/.env.pre-prd uses for values that must be filled in.
+# Outside dev a setting still holding it is refused at startup: left in
+# SESSION_SECRET_KEY or REGISTRATION_BOOTSTRAP_TOKEN it would be a secret
+# anyone who has read the template knows.
+_UNFILLED_PLACEHOLDER = "__FILL_ME__"
+_MIN_SESSION_SECRET_KEY_LENGTH = 32
+
 
 # Docker secrets are mounted as one file per secret, named after the
 # secret's target (e.g. /run/secrets/openai_key). pydantic-settings reads
@@ -57,14 +64,20 @@ class DatabaseDriverEnum(str, Enum):
 
 class Settings(BaseSettings):
     # Class that describes the settings schema
-    db_driver: DatabaseDriverEnum = Field("sqlite", description="DB_DRIVER")
+    # The enum member, not "sqlite": pydantic-settings validates defaults,
+    # and parse_database_driver only maps the short names it is given.
+    db_driver: DatabaseDriverEnum = Field(
+        DatabaseDriverEnum.sqlite, description="DB_DRIVER"
+    )
     db_directory: str = Field(
         "sqlite_db", description="Folder holding the SQLite file (a Docker volume)"
     )
     db_name: str = Field("mrie", description="SQLite file name; '.db' is appended")
     phrase: SecretStr = Field(..., description="substitution cipher")
     salt: SecretStr = Field(..., description="salt for key derivation")
-    echo: bool = Field(True, description="Enable echo")
+    # Off unless asked for: echo logs every statement *with its bound
+    # parameters*, i.e. note ciphertext, link URLs and session data.
+    echo: bool = Field(False, description="Enable echo")
     future: bool = Field(True, description="Enable future")
     pool_recycle: int = Field(3600, description="Set pool_recycle")
     # SQLite tuning, applied to every new connection (see db_init.py).
@@ -110,8 +123,8 @@ class Settings(BaseSettings):
         return self.db_driver == DatabaseDriverEnum.memory
 
     # logging settings
-    logging_directory: str = "log"
-    log_name: str = "log.log"
+    logging_directory: str = "logs"
+    log_name: str = "log"
     logging_level: str = "INFO"
     log_rotation: str = "100 MB"
     log_retention: str = "30 days"
@@ -120,9 +133,12 @@ class Settings(BaseSettings):
     log_diagnose: bool = False
     log_intercept_standard_logging: bool = False
     # session management
-    session_secret_key: SecretStr = Field(
-        default_factory=lambda: secrets.token_hex(32),
-        description="Signs the session cookie",
+    # Required outside dev (see require_production_secrets below): uvicorn
+    # runs WEB_CONCURRENCY workers, and a per-process random key would make
+    # each worker reject the others' cookies - random logouts, and a passkey
+    # ceremony whose begin/complete hit different workers always failing.
+    session_secret_key: Optional[SecretStr] = Field(
+        None, description="Signs the session cookie"
     )
     same_site: SameSiteEnum = Field("Lax", description="Options: Lax, Strict, None")
     https_only: bool = False
@@ -178,11 +194,42 @@ class Settings(BaseSettings):
                 pass
         return values
 
+    @model_validator(mode="after")
+    def require_production_secrets(self):
+        if self.is_dev_environment:
+            if self.session_secret_key is None:
+                self.session_secret_key = SecretStr(secrets.token_hex(32))
+            return self
+
+        unfilled = [
+            name.upper()
+            for name, value in self.model_dump().items()
+            if _UNFILLED_PLACEHOLDER
+            in (
+                value.get_secret_value() if isinstance(value, SecretStr) else str(value)
+            )
+        ]
+        if unfilled:
+            raise ValueError(
+                f"Fill in {', '.join(unfilled)} (still {_UNFILLED_PLACEHOLDER})"
+            )
+        key = self.session_secret_key
+        if key is None or len(key.get_secret_value()) < _MIN_SESSION_SECRET_KEY_LENGTH:
+            raise ValueError(
+                f"SESSION_SECRET_KEY must be at least {_MIN_SESSION_SECRET_KEY_LENGTH} "
+                "characters when RELEASE_ENV is not a dev value - every worker "
+                "must sign cookies with the same, unguessable key"
+            )
+        return self
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         secrets_dir=SECRETS_DIR,
         extra="allow",
+        # A failed validation otherwise prints the whole input dict - PHRASE,
+        # SALT, the OpenAI key - into the container log at startup.
+        hide_input_in_errors=True,
     )  # Set up the configuration dictionary for the settings
 
 

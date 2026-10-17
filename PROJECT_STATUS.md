@@ -526,6 +526,39 @@ over, notes get re-imported through the CSV import.
 - **Never** scale the compose service past one container or put the volume
   on NFS/SMB: WAL relies on shared-memory locking.
 
+## Production readiness (2026-10-17)
+
+- Everything for the server moved into `deploy/`: `docker-compose.yml`,
+  `common.env.sample`, a new `.env.pre-prd` template, `db-backup.sh`
+  (what `make db-backup` now runs, writing to `deploy/backups/`) and a
+  `README.md` with the first-time setup steps.
+- Compose pins the project name and the volume names (`mrie-db`,
+  `mrie-logs`) so they survive the folder being renamed, and pins
+  `RELEASE_ENV=prd`, `DEV_FAKE_LOGIN_ENABLED=False`, `DB_DIRECTORY` and
+  `LOGGING_DIRECTORY` in `environment:` (which beats `.env`).
+- Logs are on their own volume; `static/` stays baked into the image (the
+  About-page images are already in SQLite).
+- Traefik redirects `www.mikeryan.ie` to `mikeryan.ie`: WebAuthn checks one
+  exact origin, so a passkey login on `www.` always failed.
+- `SESSION_SECRET_KEY` is now required outside dev. The old fallback was a
+  random key per process, which with `WEB_CONCURRENCY=2` meant each worker
+  rejected the other's session cookie.
+- `ECHO` now defaults to `False`; it logs every bound SQL parameter.
+- `.env.sample` now holds local-dev values; production values live in
+  `deploy/.env.pre-prd`. The root `requirements.txt` (a one-line
+  `-r requirements/prd.txt`) was removed; `make install` uses
+  `requirements/prd.txt` directly.
+- Bulk CSV import rejects a missing or empty file (`required` on the input,
+  400 from `POST /notes/bulk` and `/weblinks/bulk`), strips the BOM Excel's
+  "CSV UTF-8" adds (it used to make the import silently do nothing), and
+  answers a non-UTF-8 file with a 400 instead of a 500.
+- Booting the built image with `RELEASE_ENV=prd` and no `.env` found that
+  an unset `DB_DRIVER` failed validation (the default was the string
+  `"sqlite"`, not the enum member) and that a failed settings validation
+  printed PHRASE/SALT into the log; both fixed (`hide_input_in_errors`).
+- `make docker-build`/`docker-push` are live again (`-f dockerfile`, tags
+  the version and `latest`); `deploy/db-backup.sh` follows `DB_NAME`.
+
 ## About page: résumé → draft, headshot (2026-10-10)
 
 - The About editor has a "Generate from résumé" panel: upload a PDF/DOCX/TXT
@@ -554,7 +587,8 @@ over, notes get re-imported through the CSV import.
   view is server-rendered and no longer loads `marked` from a CDN.
 - `/notes/ai-fix/{id}`, `/weblinks/update/{pkid}` and `/users/logout` are
   POST-only.
-- `.env.sample` ships production values (`RELEASE_ENV=prd`).
+- `.env.sample` ships production values (`RELEASE_ENV=prd`). (Superseded
+  2026-10-17: production values moved to `deploy/.env.pre-prd`.)
 
 ## Correctness and error-handling fixes from the PR check (2026-10-11)
 
@@ -654,20 +688,23 @@ over, notes get re-imported through the CSV import.
 
 ## Environment variables (mrie's `.env`)
 
-Required to boot: `PHRASE`, `SALT`. Database: `DB_DRIVER` (`sqlite`, the
+Required to boot: `PHRASE`, `SALT`, and outside dev `SESSION_SECRET_KEY`
+(every uvicorn worker must sign cookies with the same key). Database: `DB_DRIVER` (`sqlite`, the
 default, or `memory`), `DB_DIRECTORY`, `DB_NAME`, plus optional
 `SQLITE_BUSY_TIMEOUT_MS`/`SQLITE_CACHE_SIZE_KIB`/`SQLITE_MMAP_SIZE_BYTES`.
 
 Needed for features to work: `WEBAUTHN_RP_ID`, `WEBAUTHN_RP_NAME`,
 `WEBAUTHN_ORIGIN`, `ADMIN_USER`, `REGISTRATION_BOOTSTRAP_TOKEN` (only
 needed until the first passkey is registered — see Auth), `OPENAI_KEY`,
-`SESSION_SECRET_KEY`, `PLAUSIBLE_DOMAIN`, `PLAUSIBLE_SCRIPT_SRC`.
+`PLAUSIBLE_DOMAIN`, `PLAUSIBLE_SCRIPT_SRC`.
 
 Dev-only, never set in production: `DEV_FAKE_LOGIN_ENABLED` — see "Dev
 fake-login" below.
 
-`.env.sample` is kept in sync with the real `.env` structure (placeholder
-values only) — update it whenever a new required/optional var is added.
+`.env.sample` (local dev values, every var documented) and
+`deploy/.env.pre-prd` (production template, `__FILL_ME__` placeholders) are
+both kept in sync — update them whenever a new required/optional var is
+added.
 
 ## Gotchas worth remembering
 

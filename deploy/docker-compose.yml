@@ -1,20 +1,27 @@
 # Production: a single container on a single server, behind Traefik, with the
-# SQLite database on a named volume. The healthcheck lives in the dockerfile.
+# SQLite database and the log files on named volumes. The healthcheck lives in
+# the dockerfile. See README.md in this folder for first-time setup.
+#
+# This folder is self-contained: copy it to the server as-is (no build
+# context, the image comes from Docker Hub). Files next to this one:
+#
+#   .env               app settings - copy .env.pre-prd to .env and fill it in
+#   db-backup.sh       consistent snapshot of the live DB into ./backups/
 #
 # Exactly one container must ever own the database file: do not add
 # `deploy.replicas` or scale this service. SQLite locking across containers
 # on one host's volume does work, but it gains nothing here and a second
 # host can't share the file at all.
 #
-# Layout this file expects on the server. Override SHARED_CONFIG_FILE and
-# SHARED_SECRETS_DIR (in the shell, or in the server repo's .env, which
-# Compose reads for substitution) if yours differs. Everything here is
-# meant to be reused by every app on the box, so a rotated OpenAI key or a
-# changed log level is edited once:
+# Shared server layout this file expects. Override SHARED_CONFIG_FILE and
+# SHARED_SECRETS_DIR (in the shell, or in .env, which Compose also reads for
+# substitution) if yours differs. Everything here is meant to be reused by
+# every app on the box, so a rotated OpenAI key or a changed log level is
+# edited once:
 #
 #   /opt/docker/shared/common.env      non-secret settings common to all apps
 #                                      (LOGGING_LEVEL, LOG_RETENTION, ...);
-#                                      see common.env.sample in the app repo
+#                                      see common.env.sample in this folder
 #   /opt/docker/shared/secrets/openai_key
 #   /opt/docker/shared/secrets/phrase  one file per secret, value only
 #   /opt/docker/shared/secrets/salt
@@ -26,6 +33,12 @@
 # PHRASE and SALT derive the key that encrypts every note: they must be
 # byte-for-byte the values the notes were encrypted with, and shared apps
 # must not rotate them without re-encrypting.
+
+# Pinned so the volume names below don't depend on the folder this file is
+# copied into (Compose otherwise prefixes them with the directory name, and
+# a renamed folder would silently start on an empty database).
+name: mrie
+
 services:
   mikeryan:
     image: mikeryan56/mikeryanie:latest
@@ -44,10 +57,18 @@ services:
       - salt
       - openai_key
     environment:
-      # Pinned here, not left to .env, so the volume mount below and the
-      # path the app writes to can't drift apart.
+      # Pinned here, not left to .env (these win over env_file), so the
+      # volume mounts below and the paths the app writes to can't drift
+      # apart, and a copied dev .env can't switch on dev-only behaviour
+      # (demo data, the fake-login bypass) in production.
+      RELEASE_ENV: prd
+      DEV_FAKE_LOGIN_ENABLED: "False"
+      # The site is only ever served over https (Traefik), so the session
+      # cookie is always Secure.
+      HTTPS_ONLY: "True"
       DB_DRIVER: sqlite
       DB_DIRECTORY: /app/sqlite_db
+      LOGGING_DIRECTORY: /app/logs
       # Traefik's address must be trusted for X-Forwarded-Proto, or the app
       # emits http:// asset URLs on the https site (see dockerfile). "*" is
       # safe only because port 5000 is not published to the host - Traefik
@@ -60,7 +81,6 @@ services:
     networks:
       - web
     labels:
-      - "traefik.http.middlewares.mrie-https.redirectscheme.scheme=https"
       #### Labels define the behavior and rules of the traefik proxy for this container ####
       - "traefik.enable=true" # <== Enable traefik to proxy this container
       - "traefik.http.services.mrie.loadbalancer.server.port=5000"
@@ -70,9 +90,20 @@ services:
       - "traefik.http.routers.mrie-secured.rule=Host(`www.mikeryan.ie`, `mikeryan.ie`)" # <== Your Domain Name for the https rule
       - "traefik.http.routers.mrie-secured.entrypoints=web-secured" # <== Defining entrypoint for https
       - "traefik.http.routers.mrie-secured.tls.certresolver=mytlschallenge" # <== Defining certsresolvers for https
+      # www -> apex. Passkeys are bound to one exact origin (WEBAUTHN_ORIGIN
+      # in .env), so login on https://www.mikeryan.ie would always fail the
+      # origin check; send everyone to the one origin instead.
+      - "traefik.http.middlewares.mrie-www.redirectregex.regex=^https://www\\.mikeryan\\.ie/(.*)"
+      - "traefik.http.middlewares.mrie-www.redirectregex.replacement=https://mikeryan.ie/$${1}"
+      - "traefik.http.middlewares.mrie-www.redirectregex.permanent=true"
+      - "traefik.http.routers.mrie-secured.middlewares=mrie-www"
     volumes:
-      # Must be a local volume (not NFS/SMB): SQLite's WAL mode relies on
+      # Must be local volumes (not NFS/SMB): SQLite's WAL mode relies on
       # shared-memory locking that network filesystems don't provide.
+      # The database holds all site state - notes, links (with their preview
+      # thumbnails), the About page and its uploaded images. The site's own
+      # static images (static/img) are baked into the image, not a volume, so
+      # a new build always ships the current ones.
       - db-volume:/app/sqlite_db
       - log-volume:/app/logs
 
@@ -82,11 +113,13 @@ networks:
 
 volumes:
   db-volume:
+    name: mrie-db
   log-volume:
+    name: mrie-logs
 
 # Mounted at /run/secrets/<name>, where the app reads them as settings (see
-# src/settings.py: a real env var or .env value still takes precedence, so a
-# value left in .env keeps working during the move). `file:` sources, not
+# src/settings.py: a real env var or .env value still takes precedence, so
+# never put these in .env on the server). `file:` sources, not
 # `external: true`, because this is plain Compose, not Swarm.
 secrets:
   phrase:

@@ -25,9 +25,10 @@ make cleanup          # same as `make ruff`
 make ruff             # ruff check --fix, then ruff format, on src/ and tests/
 make cache            # clean __pycache__ / .pytest_cache
 make alembic-migrate  # alembic upgrade head on the SQLite file DB (see Data layer below)
-make db-backup        # consistent snapshot of the prod DB from the running container into backups/
+make db-backup        # consistent snapshot of the prod DB from the running container (deploy/db-backup.sh) into deploy/backups/
 make alembic-rev      # alembic revision --autogenerate, prompts for a name
 make alembic-downgrade  # alembic downgrade -1
+make docker-push      # build (dockerfile, lowercase - needs -f) and push mikeryan56/mikeryanie:<version> and :latest
 make help             # list all targets with descriptions
 ```
 
@@ -44,11 +45,11 @@ Run a single test directly (skips pre-commit and coverage/badge generation):
 PYTHONPATH=. pytest tests/test_main.py::test_read_root -v
 ```
 
-`make help` shows every active target; several targets (docker, flake8,
-pyright, granian) are commented out in the `makefile` with a reason each —
-they're not wired up (packages not installed), not accidentally broken.
-Alembic's targets (`alembic-migrate`/`alembic-rev`/`alembic-downgrade`,
-above) are wired up and live, unlike these.
+`make help` shows every active target; a few (flake8, pyright, granian)
+are commented out in the `makefile` with a reason each — they're not wired
+up (packages not installed), not accidentally broken. The docker targets
+(`docker-login`/`docker-build`/`docker-push`) are live: nothing in CI builds
+the image, so `make docker-push` is the release step.
 
 ## Architecture
 
@@ -118,7 +119,9 @@ kind.
   logic and the `REGISTRATION_BOOTSTRAP_TOKEN` requirement).
 - `notes.py` — journal CRUD, AI mood/tag/summary analysis (background
   task on create), CSV import (two formats — simple and dsg's full
-  export, auto-detected by header), dashboard/insights.
+  export, auto-detected by header; both bulk endpoints read the upload via
+  `functions/csv_upload.py::read_csv_upload()`, which strips Excel's BOM
+  and turns a missing, empty or non-UTF-8 file into a 400), dashboard/insights.
 - `web_links.py` — bookmark CRUD, AI title/summary, Selenium screenshot
   capture, CSV import. Title/summary come from the page itself:
   `functions/link_analysis.py` fetches it (`functions/page_fetch.py`, or
@@ -229,8 +232,15 @@ pattern rather than a hard top-level import.
 `db_driver`, `webauthn_rp_id`/`webauthn_origin` (must match how the app is
 actually accessed — see gotcha below), `registration_bootstrap_token`,
 `https_only`/`same_site`/`max_age` (session cookie behavior),
-`admin_user`. `.env.sample` documents every var with a placeholder and
-must be kept in sync when adding new settings.
+`admin_user`. `.env.sample` (local dev) documents every var with a
+placeholder and must be kept in sync when adding new settings, as must
+`deploy/.env.pre-prd` (production template) for anything production needs.
+Outside a dev `release_env`, `require_production_secrets` refuses to start
+when `session_secret_key` is missing or under 32 characters (uvicorn runs
+several workers; a per-process random key would make them reject each
+other's cookies) or when any setting still holds the template's
+`__FILL_ME__` marker. `hide_input_in_errors` keeps a failed validation
+from printing PHRASE/SALT/keys into the startup log. `echo` defaults to off since it logs every bound parameter.
 
 `dev_fake_login_allowed` (a property, not a raw field) is the pattern to
 follow for any other dev-only bypass: it requires **both** an explicit
@@ -240,9 +250,18 @@ it — see `GET /users/dev-login` in `src/endpoints/users.py` for the
 consuming side (returns 404, not a refusal, when disallowed).
 
 ### Deployment
-Production is one container on one server (`docker-compose.yml`) behind
-Traefik, with the SQLite file on the `db-volume` named volume mounted at
-`/app/sqlite_db`. Never scale it past one container, and keep the volume
+Everything the server needs lives in `deploy/` (`docker-compose.yml`,
+`.env.pre-prd`, `common.env.sample`, `db-backup.sh`, and a `README.md` with
+the setup steps), which is copied to the server as one folder. Production is
+one container on one server behind Traefik, with the SQLite file on the
+`mrie-db` volume at `/app/sqlite_db` and logs on `mrie-logs` at `/app/logs`
+(volume names pinned with `name:`, so they don't depend on the folder name).
+`static/` is baked into the image, not a volume: About-page uploads are
+already in the DB, and a volume over `static/img` would keep serving the
+first image's files after every later build. The compose file pins
+`RELEASE_ENV=prd`, `DEV_FAKE_LOGIN_ENABLED=False` and the DB/log paths in
+`environment:`, which beats `.env`. Traefik redirects `www.` to the bare
+domain, because WebAuthn verifies a single exact `WEBAUTHN_ORIGIN`. Never scale it past one container, and keep the volume
 on local disk: WAL needs shared-memory locking that NFS/SMB don't provide.
 The image's `CMD` runs `alembic upgrade head` then `exec`s uvicorn
 (`WEB_CONCURRENCY=2` workers sharing the file). uvicorn must trust
@@ -256,10 +275,10 @@ Secrets are Docker secrets, not `.env` values: `phrase`, `salt` and
 (`secrets_dir`, only when the directory exists). A real env var or `.env`
 value still wins, so local dev is unchanged. Shared non-secret config
 (logging, timezone) comes from `SHARED_CONFIG_FILE` (see
-`common.env.sample`) and is overridden by the app's own `.env`. `PHRASE`
+`deploy/common.env.sample`) and is overridden by the app's own `.env`. `PHRASE`
 and `SALT` must stay identical to what the notes were encrypted with. The
 compose file is meant to be copied into a server repo: keep it
-self-contained (no relative build context). Back up with `make db-backup`, which uses SQLite's online
+self-contained (no relative build context). Back up with `deploy/db-backup.sh` (`make db-backup`), which uses SQLite's online
 backup API, never a plain `cp` of a live WAL database.
 
 ### Static assets

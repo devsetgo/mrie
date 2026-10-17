@@ -2,6 +2,7 @@
 SHELL := /bin/bash
 # Variables
 application_name = mikeryanie
+IMAGE = mikeryan56/$(application_name)
 __version__ = 2026.09.13-001
 
 PYTHON = python3
@@ -19,14 +20,13 @@ WORKERS = 4
 THREADS = 2
 
 VENV_PATH = _venv
-REQUIREMENTS_PATH = requirements.txt
+REQUIREMENTS_PATH = requirements/prd.txt
 DEV_REQUIREMENTS_PATH = requirements/dev.txt
 OPTIONAL_REQUIREMENTS_PATH = requirements/optional.txt
 
-TIMESTAMP := $(shell date +'%y-%m-%d-%H%M')
 LOG_LEVEL := $(shell grep LOGGING_LEVEL .env | cut -d '=' -f2 | tr '[:upper:]' '[:lower:]')
 
-.PHONY: alembic-downgrade alembic-migrate alembic-rev bump cache cleanup db-backup help install install-dev install-optional kill ruff run-dev run-dev-workers run-prd reset-dev-workers-db test
+.PHONY: alembic-downgrade alembic-migrate alembic-rev bump cache cleanup db-backup docker-build docker-login docker-push help install install-dev install-optional kill ruff run-dev run-dev-workers run-prd reset-dev-workers-db test
 
 # Necessary to develop, lint, test, and run the app day to day.
 # Everything below is commented out while evaluating a possible move to
@@ -74,11 +74,8 @@ run-dev-workers:  # Run with 6 workers against a separate file-based SQLite DB, 
 reset-dev-workers-db:  # Delete the SQLite file run-dev-workers created, for a clean re-test
 	rm -f sqlite_db/loadtest.db sqlite_db/loadtest.db-wal sqlite_db/loadtest.db-shm
 
-db-backup:  # Write a consistent snapshot of the production SQLite DB (from the running container) to backups/
-	mkdir -p backups
-	docker compose exec -T mikeryan python -c "import sqlite3; src = sqlite3.connect('/app/sqlite_db/mrie.db'); dst = sqlite3.connect('/tmp/mrie-backup.db'); src.backup(dst); dst.close(); src.close()"
-	docker compose cp mikeryan:/tmp/mrie-backup.db backups/mrie-$(TIMESTAMP).db
-	docker compose exec -T mikeryan rm -f /tmp/mrie-backup.db
+db-backup:  # Write a consistent snapshot of the production SQLite DB (from the running container) to deploy/backups/
+	deploy/db-backup.sh
 
 test:  # Run tests and generate coverage report
 	pre-commit run -a
@@ -102,20 +99,15 @@ alembic-downgrade:  # Downgrade one Alembic revision
 # compile:  # Compile http_request.c into a shared library — http_request.c isn't in the repo
 # 	gcc -shared -o http_request.so http_request.c -lcurl -fPIC
 
-# docker-login:  # Login to docker hub
-# 	docker login
+docker-login:  # Log in to Docker Hub (once per machine)
+	docker login
 
-# docker-run:  # Run docker container
-# 	docker run -p 5000:5000 mikeryanie:$(__version__)
+docker-build:  # Build the production image, tagged with the version and `latest`
+	docker build --pull -f dockerfile -t $(IMAGE):$(__version__) -t $(IMAGE):latest .
 
-# docker-build:  # Build docker image
-# 	docker build --no-cache -t $(application_name):$(__version__) .
-
-# docker-push:  # Push beta test image to docker hub
-# 	docker tag $(application_name):$(__version__) mikeryan56/$(application_name):$(__version__)
-# 	docker push mikeryan56/$(application_name):$(__version__)
-
-# docker-all: docker-build docker-push
+docker-push: docker-build  # Build, then push both tags - deploy/docker-compose.yml pulls `latest`
+	docker push $(IMAGE):$(__version__)
+	docker push $(IMAGE):latest
 
 # flake8:  # Run flake8 and output report — flake8 isn't installed; ruff replaces it
 # 	flake8 --tee . > _flake8Report.txt
