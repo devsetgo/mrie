@@ -77,6 +77,7 @@ from sqlalchemy import (
 
 from ..db_tables import Notes, compute_note_derived_fields
 from ..functions import ai, date_functions, note_import, notes_metrics
+from ..functions.csv_upload import read_csv_upload
 from ..functions.db_guards import is_db_error
 from ..functions.db_guards import safe_list as _safe_list
 from ..functions.db_guards import safe_record as _safe_record
@@ -324,9 +325,7 @@ async def bulk_note(
 ):
     user_identifier = user_info["user_identifier"]
 
-    # read the file content
-    file_content = await csv_file.read()
-    file_content = file_content.decode("utf-8")
+    file_content = await read_csv_upload(csv_file)
     # Length only: the file is the user's private journal export, decrypted.
     logger.debug(f"Received CSV upload ({len(file_content)} characters)")
     csv_reader = csv.DictReader(io.StringIO(file_content))
