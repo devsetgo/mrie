@@ -26,7 +26,7 @@ OPTIONAL_REQUIREMENTS_PATH = requirements/optional.txt
 
 LOG_LEVEL := $(shell grep LOGGING_LEVEL .env | cut -d '=' -f2 | tr '[:upper:]' '[:lower:]')
 
-.PHONY: alembic-downgrade alembic-migrate alembic-rev bump cache cleanup db-backup docker-build docker-login docker-push help install install-dev install-optional kill ruff run-dev run-dev-workers run-prd reset-dev-workers-db test
+.PHONY: alembic-downgrade alembic-migrate alembic-rev bump cache cleanup db-backup docker-build docker-login docker-push docker-push-only help install install-dev install-optional kill ruff run-dev run-dev-workers run-prd release release-publish reset-dev-workers-db test
 
 # Necessary to develop, lint, test, and run the app day to day.
 # Everything below is commented out while evaluating a possible move to
@@ -34,6 +34,25 @@ LOG_LEVEL := $(shell grep LOGGING_LEVEL .env | cut -d '=' -f2 | tr '[:upper:]' '
 
 bump:  # Bump the version number
 	bumpcalver --build
+
+# release-publish runs as a sub-make so it re-reads this file after the
+# bump: $(__version__) is expanded when make parses the makefile, so in
+# this make it still holds the old version. The image is built before
+# anything is pushed, so a failed build leaves no public commit/tag
+# pointing at an image that doesn't exist.
+release:  # Run tests, bump version, commit ALL uncommitted changes as "bump to <version>", tag, build image, push commit + tag, push image
+	$(MAKE) --no-print-directory test
+	bumpcalver --build --no-auto-commit --no-git-tag
+	$(MAKE) --no-print-directory release-publish
+
+release-publish:  # (used by release) Commit + tag the current version, build, then push git and the image
+	git add pyproject.toml src/__init__.py makefile bumpcalver-history.json coverage-badge.svg
+	git commit -m "bump to $(__version__)"
+	git tag $(__version__)
+	$(MAKE) --no-print-directory docker-build
+	git push origin HEAD
+	git push origin $(__version__)
+	$(MAKE) --no-print-directory docker-push-only
 
 cache:  # Clean pycache
 	find . -name '__pycache__' -exec rm -rf {} +
@@ -80,8 +99,8 @@ db-backup:  # Write a consistent snapshot of the production SQLite DB (from the 
 test:  # Run tests and generate coverage report
 	pre-commit run -a
 	PYTHONPATH=. pytest -n auto --maxprocesses=8
-	sed -i 's|<source>/workspaces/mrie</source>|<source>/github/workspace/mrie</source>|' /workspaces/mrie/coverage.xml
-	genbadge coverage -i /workspaces/mrie/coverage.xml
+	sed -i 's|<source>$(CURDIR)</source>|<source>/github/workspace/mrie</source>|' coverage.xml
+	genbadge coverage -i coverage.xml
 
 tests: test  # Alias for test
 
@@ -105,7 +124,9 @@ docker-login:  # Log in to Docker Hub (once per machine)
 docker-build:  # Build the production image, tagged with the version and `latest`
 	docker build --pull -f dockerfile -t $(IMAGE):$(__version__) -t $(IMAGE):latest .
 
-docker-push: docker-build  # Build, then push both tags - deploy/docker-compose.yml pulls `latest`
+docker-push: docker-build docker-push-only  # Build, then push both tags - deploy/docker-compose.yml pulls `latest`
+
+docker-push-only:  # Push both tags of an already-built image, without rebuilding
 	docker push $(IMAGE):$(__version__)
 	docker push $(IMAGE):latest
 
