@@ -20,7 +20,7 @@ deliberate, not an oversight.
 make install-dev     # pip install requirements/dev.txt (includes prd.txt)
 make install-optional  # pip install requirements/optional.txt (selenium, silly, tqdm)
 make run-dev          # uvicorn with --reload, port 5000
-make test             # pre-commit run -a && pytest -n auto --maxprocesses=8 (parallel; + coverage badge)
+make test             # pre-commit run -a && pytest -n auto --maxprocesses=8 (parallel; + coverage badge); on a host whose python3 is < 3.14 it runs via `uv run --python 3.14` (PY_RUN in the makefile)
 make cleanup          # same as `make ruff`
 make ruff             # ruff check --fix, then ruff format, on src/ and tests/
 make cache            # clean __pycache__ / .pytest_cache

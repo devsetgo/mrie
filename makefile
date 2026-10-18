@@ -24,6 +24,12 @@ REQUIREMENTS_PATH = requirements/prd.txt
 DEV_REQUIREMENTS_PATH = requirements/dev.txt
 OPTIONAL_REQUIREMENTS_PATH = requirements/optional.txt
 
+# The project needs Python 3.14. The devcontainer's python3 is 3.14 with the
+# dev deps installed, so tools run directly there; on a host whose python3 is
+# older (WSL is 3.10), they run through uv in a cached throwaway 3.14
+# environment. --no-project stops uv from trying to build/install the app.
+PY_RUN := $(shell $(PYTHON) -c 'import sys; sys.exit(sys.version_info < (3, 14))' 2>/dev/null || echo "uv run --python 3.14 --no-project --with-requirements $(DEV_REQUIREMENTS_PATH)")
+
 LOG_LEVEL := $(shell grep LOGGING_LEVEL .env | cut -d '=' -f2 | tr '[:upper:]' '[:lower:]')
 
 .PHONY: alembic-downgrade alembic-migrate alembic-rev bump cache cleanup db-backup docker-build docker-login docker-push docker-push-only help install install-dev install-optional kill ruff run-dev run-dev-workers run-prd release release-publish reset-dev-workers-db test
@@ -100,9 +106,9 @@ db-backup:  # Write a consistent snapshot of the production SQLite DB (from the 
 
 test:  # Run tests and generate coverage report
 	pre-commit run -a
-	PYTHONPATH=. pytest -n auto --maxprocesses=8
+	PYTHONPATH=. $(PY_RUN) pytest -n auto --maxprocesses=8
 	sed -i 's|<source>$(CURDIR)</source>|<source>/github/workspace/mrie</source>|' coverage.xml
-	genbadge coverage -i coverage.xml
+	$(PY_RUN) genbadge coverage -i coverage.xml
 
 tests: test  # Alias for test
 
