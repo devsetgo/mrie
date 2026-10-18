@@ -46,7 +46,9 @@ release:  # Run tests, bump version, commit ALL uncommitted changes as "bump to 
 	$(MAKE) --no-print-directory release-publish
 
 release-publish:  # (used by release) Commit + tag the current version, build, then push git and the image
-	git add pyproject.toml src/__init__.py makefile bumpcalver-history.json coverage-badge.svg
+	@# Everything uncommitted (incl. new untracked files) goes in, so the
+	@# image is built from exactly the tagged commit.
+	git add -A
 	git commit -m "bump to $(__version__)"
 	git tag $(__version__)
 	$(MAKE) --no-print-directory docker-build
