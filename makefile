@@ -3,7 +3,7 @@ SHELL := /bin/bash
 # Variables
 application_name = mikeryanie
 IMAGE = mikeryan56/$(application_name)
-__version__ = 2026.10.17-001
+__version__ = 2026.10.17-002
 
 PYTHON = python3
 PIP = $(PYTHON) -m pip
@@ -39,7 +39,7 @@ LOG_LEVEL := $(shell grep LOGGING_LEVEL .env | cut -d '=' -f2 | tr '[:upper:]' '
 # Robyn / granian - uncomment as needed for local feature work.
 
 bump:  # Bump the version number
-	bumpcalver --build
+	$(PY_RUN) bumpcalver --build
 
 # release-publish runs as a sub-make so it re-reads this file after the
 # bump: $(__version__) is expanded when make parses the makefile, so in
@@ -48,10 +48,14 @@ bump:  # Bump the version number
 # pointing at an image that doesn't exist.
 release:  # Run tests, bump version, commit ALL uncommitted changes as "bump to <version>", tag, build image, push commit + tag, push image
 	$(MAKE) --no-print-directory test
-	bumpcalver --build --no-auto-commit --no-git-tag
+	$(PY_RUN) bumpcalver --build --no-auto-commit --no-git-tag
 	$(MAKE) --no-print-directory release-publish
 
 release-publish:  # (used by release) Commit + tag the current version, build, then push git and the image
+	@if git rev-parse -q --verify "refs/tags/$(__version__)" >/dev/null; then \
+		echo "Tag $(__version__) already exists - bumpcalver did not produce a new version. Nothing committed."; \
+		exit 1; \
+	fi
 	@# Everything uncommitted (incl. new untracked files) goes in, so the
 	@# image is built from exactly the tagged commit.
 	git add -A

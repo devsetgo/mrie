@@ -29,7 +29,7 @@ make db-backup        # consistent snapshot of the prod DB from the running cont
 make alembic-rev      # alembic revision --autogenerate, prompts for a name
 make alembic-downgrade  # alembic downgrade -1
 make docker-push      # build (dockerfile, lowercase - needs -f) and push mikeryan56/mikeryanie:<version> and :latest
-make release          # make test, bumpcalver, commit ALL uncommitted changes as "bump to <version>", tag, build, push commit+tag, push image
+make release          # make test, bumpcalver (pinned dev.txt version via PY_RUN; it reads the build count from the FIRST [[tool.bumpcalver.file]] entry, which must stay the makefile - pyproject/src hold the python-normalised form it can't parse, so it would restart at -001), commit ALL uncommitted changes as "bump to <version>", tag, build, push commit+tag, push image
 make help             # list all targets with descriptions
 ```
 

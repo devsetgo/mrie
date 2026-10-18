@@ -1,6 +1,6 @@
 [project]
 name = "MikeRyan.ie"
-version = "2026.10.17.1"
+version = "2026.10.17.2"
 requires-python = ">=3.14"
 description = "MikeRyan.ie website"
 readme = "README.md"
@@ -65,6 +65,12 @@ timezone = "America/New_York"
 git_tag = true
 auto_commit = true
 [[tool.bumpcalver.file]]
+path = "makefile"
+file_type = "makefile"
+variable = "__version__"
+version_standard = "default"
+
+[[tool.bumpcalver.file]]
 path = "pyproject.toml"
 file_type = "toml"
 variable = "project.version"
@@ -75,12 +81,6 @@ path = "src/__init__.py"
 file_type = "python"
 variable = "__version__"
 version_standard = "python"
-
-[[tool.bumpcalver.file]]
-path = "makefile"
-file_type = "makefile"
-variable = "__version__"
-version_standard = "default"
 
 [tool.ruff.lint]
 select = [ "C", "F", "E", "W", "B", "I",]

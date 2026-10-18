@@ -1,5 +1,43 @@
 [
   {
+    "operation_id": "20261017_214148_295",
+    "timestamp": "2026-10-17T21:41:48.300825",
+    "version": "2026.10.17-002",
+    "files_updated": [
+      "/home/mike/mrie/makefile",
+      "/home/mike/mrie/pyproject.toml",
+      "/home/mike/mrie/src/__init__.py"
+    ],
+    "backups": {
+      "/home/mike/mrie/makefile": "/home/mike/mrie/.bumpcalver/backups/20261017_214148_295_makefile",
+      "/home/mike/mrie/pyproject.toml": "/home/mike/mrie/.bumpcalver/backups/20261017_214148_295_pyproject.toml",
+      "/home/mike/mrie/src/__init__.py": "/home/mike/mrie/.bumpcalver/backups/20261017_214148_295___init__.py"
+    },
+    "git_tag": false,
+    "git_commit": false,
+    "git_commit_hash": null,
+    "git_tag_name": null
+  },
+  {
+    "operation_id": "20261017_213641_969",
+    "timestamp": "2026-10-17T21:36:41.972168",
+    "version": "2026.10.17-001",
+    "files_updated": [
+      "/home/mike/mrie/pyproject.toml",
+      "/home/mike/mrie/src/__init__.py",
+      "/home/mike/mrie/makefile"
+    ],
+    "backups": {
+      "/home/mike/mrie/pyproject.toml": "/home/mike/mrie/.bumpcalver/backups/20261017_213641_969_pyproject.toml",
+      "/home/mike/mrie/src/__init__.py": "/home/mike/mrie/.bumpcalver/backups/20261017_213641_969___init__.py",
+      "/home/mike/mrie/makefile": "/home/mike/mrie/.bumpcalver/backups/20261017_213641_969_makefile"
+    },
+    "git_tag": false,
+    "git_commit": false,
+    "git_commit_hash": null,
+    "git_tag_name": null
+  },
+  {
     "operation_id": "20261017_211521_490",
     "timestamp": "2026-10-17T21:15:21.506617",
     "version": "2026.10.17-001",
