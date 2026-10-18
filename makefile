@@ -2,7 +2,8 @@
 SHELL := /bin/bash
 # Variables
 application_name = mikeryanie
-__version__ = 2026.09.13-001
+IMAGE = mikeryan56/$(application_name)
+__version__ = 2026.10.17-002
 
 PYTHON = python3
 PIP = $(PYTHON) -m pip
@@ -19,21 +20,51 @@ WORKERS = 4
 THREADS = 2
 
 VENV_PATH = _venv
-REQUIREMENTS_PATH = requirements.txt
+REQUIREMENTS_PATH = requirements/prd.txt
 DEV_REQUIREMENTS_PATH = requirements/dev.txt
 OPTIONAL_REQUIREMENTS_PATH = requirements/optional.txt
 
-TIMESTAMP := $(shell date +'%y-%m-%d-%H%M')
+# The project needs Python 3.14. The devcontainer's python3 is 3.14 with the
+# dev deps installed, so tools run directly there; on a host whose python3 is
+# older (WSL is 3.10), they run through uv in a cached throwaway 3.14
+# environment. --no-project stops uv from trying to build/install the app.
+PY_RUN := $(shell $(PYTHON) -c 'import sys; sys.exit(sys.version_info < (3, 14))' 2>/dev/null || echo "uv run --python 3.14 --no-project --with-requirements $(DEV_REQUIREMENTS_PATH)")
+
 LOG_LEVEL := $(shell grep LOGGING_LEVEL .env | cut -d '=' -f2 | tr '[:upper:]' '[:lower:]')
 
-.PHONY: alembic-downgrade alembic-migrate alembic-rev bump cache cleanup db-backup help install install-dev install-optional kill ruff run-dev run-dev-workers run-prd reset-dev-workers-db test
+.PHONY: alembic-downgrade alembic-migrate alembic-rev bump cache cleanup db-backup docker-build docker-login docker-push docker-push-only help install install-dev install-optional kill ruff run-dev run-dev-workers run-prd release release-publish reset-dev-workers-db test
 
 # Necessary to develop, lint, test, and run the app day to day.
 # Everything below is commented out while evaluating a possible move to
 # Robyn / granian - uncomment as needed for local feature work.
 
 bump:  # Bump the version number
-	bumpcalver --build
+	$(PY_RUN) bumpcalver --build
+
+# release-publish runs as a sub-make so it re-reads this file after the
+# bump: $(__version__) is expanded when make parses the makefile, so in
+# this make it still holds the old version. The image is built before
+# anything is pushed, so a failed build leaves no public commit/tag
+# pointing at an image that doesn't exist.
+release:  # Run tests, bump version, commit ALL uncommitted changes as "bump to <version>", tag, build image, push commit + tag, push image
+	$(MAKE) --no-print-directory test
+	$(PY_RUN) bumpcalver --build --no-auto-commit --no-git-tag
+	$(MAKE) --no-print-directory release-publish
+
+release-publish:  # (used by release) Commit + tag the current version, build, then push git and the image
+	@if git rev-parse -q --verify "refs/tags/$(__version__)" >/dev/null; then \
+		echo "Tag $(__version__) already exists - bumpcalver did not produce a new version. Nothing committed."; \
+		exit 1; \
+	fi
+	@# Everything uncommitted (incl. new untracked files) goes in, so the
+	@# image is built from exactly the tagged commit.
+	git add -A
+	git commit -m "bump to $(__version__)"
+	git tag $(__version__)
+	$(MAKE) --no-print-directory docker-build
+	git push origin HEAD
+	git push origin $(__version__)
+	$(MAKE) --no-print-directory docker-push-only
 
 cache:  # Clean pycache
 	find . -name '__pycache__' -exec rm -rf {} +
@@ -74,17 +105,14 @@ run-dev-workers:  # Run with 6 workers against a separate file-based SQLite DB, 
 reset-dev-workers-db:  # Delete the SQLite file run-dev-workers created, for a clean re-test
 	rm -f sqlite_db/loadtest.db sqlite_db/loadtest.db-wal sqlite_db/loadtest.db-shm
 
-db-backup:  # Write a consistent snapshot of the production SQLite DB (from the running container) to backups/
-	mkdir -p backups
-	docker compose exec -T mikeryan python -c "import sqlite3; src = sqlite3.connect('/app/sqlite_db/mrie.db'); dst = sqlite3.connect('/tmp/mrie-backup.db'); src.backup(dst); dst.close(); src.close()"
-	docker compose cp mikeryan:/tmp/mrie-backup.db backups/mrie-$(TIMESTAMP).db
-	docker compose exec -T mikeryan rm -f /tmp/mrie-backup.db
+db-backup:  # Write a consistent snapshot of the production SQLite DB (from the running container) to deploy/backups/
+	deploy/db-backup.sh
 
 test:  # Run tests and generate coverage report
 	pre-commit run -a
-	PYTHONPATH=. pytest -n auto --maxprocesses=8
-	sed -i 's|<source>/workspaces/mrie</source>|<source>/github/workspace/mrie</source>|' /workspaces/mrie/coverage.xml
-	genbadge coverage -i /workspaces/mrie/coverage.xml
+	PYTHONPATH=. $(PY_RUN) pytest -n auto --maxprocesses=8
+	sed -i 's|<source>$(CURDIR)</source>|<source>/github/workspace/mrie</source>|' coverage.xml
+	$(PY_RUN) genbadge coverage -i coverage.xml
 
 tests: test  # Alias for test
 
@@ -102,20 +130,18 @@ alembic-downgrade:  # Downgrade one Alembic revision
 # compile:  # Compile http_request.c into a shared library — http_request.c isn't in the repo
 # 	gcc -shared -o http_request.so http_request.c -lcurl -fPIC
 
-# docker-login:  # Login to docker hub
-# 	docker login
+docker-login:  # Log in to Docker Hub (once per machine)
+	docker login
 
-# docker-run:  # Run docker container
-# 	docker run -p 5000:5000 mikeryanie:$(__version__)
+docker-build:  # Build the production image, tagged with the version and `latest`
+	docker build --pull -f dockerfile -t $(IMAGE):$(__version__) -t $(IMAGE):latest .
 
-# docker-build:  # Build docker image
-# 	docker build --no-cache -t $(application_name):$(__version__) .
+docker-push: docker-build docker-push-only  # Build, then push both tags - deploy/docker-compose.yml pulls `latest`
 
-# docker-push:  # Push beta test image to docker hub
-# 	docker tag $(application_name):$(__version__) mikeryan56/$(application_name):$(__version__)
-# 	docker push mikeryan56/$(application_name):$(__version__)
+docker-push-only:  # Push both tags of an already-built image, without rebuilding
+	docker push $(IMAGE):$(__version__)
+	docker push $(IMAGE):latest
 
-# docker-all: docker-build docker-push
 
 # flake8:  # Run flake8 and output report — flake8 isn't installed; ruff replaces it
 # 	flake8 --tee . > _flake8Report.txt

@@ -3,10 +3,6 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Leftover About-page uploads from before they moved into the database
-# (about_images table) - nothing writes here any more.
-static/uploads/
-
 # C extensions
 *.so
 

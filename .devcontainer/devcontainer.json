@@ -2,8 +2,16 @@
 // README at: https://github.com/devcontainers/templates/tree/main/src/python
 {
 	"name": "MikeRyan.ie",
-	"dockerComposeFile": "docker-compose.yml",
-	"service": "app",
+	// A plain build, not dockerComposeFile: Compose 5.x builds through
+	// `buildx bake`, which refuses to read the features Dockerfile the Dev
+	// Containers CLI generates under /tmp (outside the build context) and fails
+	// with "additional privileges requested: pass --allow=fs.read=...".
+	"build": {
+		"dockerfile": "Dockerfile",
+		"context": ".."
+	},
+	// Same layout the compose file used: the parent dir mounted at /workspaces.
+	"workspaceMount": "source=${localWorkspaceFolder}/..,target=/workspaces,type=bind,consistency=cached",
 	"workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
 	"runArgs": [
 		"--init",

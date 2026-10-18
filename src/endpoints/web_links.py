@@ -50,6 +50,7 @@ from sqlalchemy import Select, asc, delete, func, insert, or_, update
 
 from ..db_tables import WEBLINK_PROCESSING, Categories, WebLinks
 from ..functions import date_functions, link_analysis, link_import, link_preview
+from ..functions.csv_upload import read_csv_upload
 from ..functions.db_guards import is_db_error
 from ..functions.db_guards import safe_list as _safe_list
 from ..functions.db_guards import safe_record as _safe_record
@@ -102,9 +103,7 @@ async def bulk_weblink(
 ):
     user_identifier = user_info["user_identifier"]
 
-    # read the file content
-    file_content = await csv_file.read()
-    file_content = file_content.decode("utf-8")
+    file_content = await read_csv_upload(csv_file)
 
     # Add the task to background tasks
     background_tasks.add_task(

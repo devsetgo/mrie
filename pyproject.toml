@@ -1,6 +1,6 @@
 [project]
 name = "MikeRyan.ie"
-version = "2026.9.13.1"
+version = "2026.10.17.2"
 requires-python = ">=3.14"
 description = "MikeRyan.ie website"
 readme = "README.md"
@@ -65,6 +65,12 @@ timezone = "America/New_York"
 git_tag = true
 auto_commit = true
 [[tool.bumpcalver.file]]
+path = "makefile"
+file_type = "makefile"
+variable = "__version__"
+version_standard = "default"
+
+[[tool.bumpcalver.file]]
 path = "pyproject.toml"
 file_type = "toml"
 variable = "project.version"
@@ -76,21 +82,9 @@ file_type = "python"
 variable = "__version__"
 version_standard = "python"
 
-[[tool.bumpcalver.file]]
-path = "makefile"
-file_type = "makefile"
-variable = "__version__"
-version_standard = "default"
-
 [tool.ruff.lint]
 select = [ "C", "F", "E", "W", "B", "I",]
 ignore = [ "C901", "E501", "B017", "B904", "B008", "E712",]
-
-[tool.ruff.lint.isort]
-# `src` is the app package (imported as `from src.x import ...`), but ruff's
-# `src = [...]` above lists directories to look *inside*, so without this it
-# would classify `src.*` as third-party and sort it in with pytest/fastapi.
-known-first-party = [ "src",]
 
 [tool.ruff.format]
 indent-style = "space"
@@ -108,3 +102,6 @@ norecursedirs = [ "/tests",]
 testpaths = [ "tests",]
 python_files = [ "test_*.py", "*_test.py",]
 addopts = [ "--cov=./", "--cov-report=html", "--cov-report=xml", "-ra", "--strict-markers", "--tb=short", "-p pytester",]
+
+[tool.ruff.lint.isort]
+known-first-party = [ "src",]

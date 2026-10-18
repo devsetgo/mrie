@@ -168,6 +168,36 @@ def test_weblinks_bulk_form(logged_in_client):
     assert response.status_code == 200
 
 
+def test_weblinks_bulk_rejects_no_file_chosen(logged_in_client):
+    # What a browser sends when the file input is left empty: a part with
+    # filename="" and no content (httpx can't produce this via files=).
+    boundary = "testboundary"
+    body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="csv_file"; filename=""\r\n'
+        "Content-Type: application/octet-stream\r\n\r\n"
+        f"\r\n--{boundary}--\r\n"
+    )
+    response = logged_in_client.post(
+        "/weblinks/bulk",
+        content=body,
+        headers={
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "Accept": "application/json",
+        },
+    )
+    assert response.status_code == 400
+
+
+def test_weblinks_bulk_rejects_blank_file(logged_in_client):
+    response = logged_in_client.post(
+        "/weblinks/bulk",
+        files={"csv_file": ("empty.csv", b"  \n", "text/csv")},
+        headers={"Accept": "application/json"},
+    )
+    assert response.status_code == 400
+
+
 def test_weblinks_bulk_import(logged_in_client, mock_weblink_externals):
     csv_content = (
         "public,url,category\nFalse,https://example.com/bulk-import,Programming\n"

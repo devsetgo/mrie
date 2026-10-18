@@ -7,7 +7,7 @@ repos:
     # autoflake (unused imports, rule F401) - configured in pyproject.toml
     # under [tool.ruff]. Order matters: ruff-check --fix runs first so that
     # ruff-format sees the final import layout.
-    rev: v0.16.6
+    rev: v0.17.1
     hooks:
       # --no-unsafe-fixes overrides `unsafe-fixes = true` in pyproject.toml
       # for this hook only: an auto-run commit hook shouldn't silently rewrite

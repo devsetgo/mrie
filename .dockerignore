@@ -3,10 +3,12 @@
 .gitignore
 
 # Secrets - .env holds real credentials (DB, PHRASE/SALT, OpenAI key,
-# GitHub OAuth, etc.). It must never be baked into an image layer;
+# session key, etc.). It must never be baked into an image layer;
 # docker-compose.yml mounts it at container *run* time via `env_file:`
-# instead, straight from the host.
+# instead, straight from the host. The templates (.env.sample, and
+# deploy/.env.pre-prd) carry no secrets, but have no runtime use either.
 .env
+.env.*
 
 # Python build/runtime artifacts
 __pycache__/
@@ -35,22 +37,28 @@ requirements/dev.txt
 sqlite_db/
 backups/
 logs/
-static/uploads/
 
 # Dev container / editor / IDE
 .devcontainer/
 .vscode/
 .idea/
 
-# Docs - no runtime value
+# Docs and repo tooling - no runtime value
 CLAUDE.md
 PROJECT_STATUS.md
 README.md
+TODO_TASKS.md
+.claude/
+.github/
+.bumpcalver/
+bumpcalver-history.json
+sonar-project.properties
+*.log
 
 # Docker/CI plumbing itself - not needed inside the image it produces
 dockerfile
 Dockerfile
-docker-compose.yml
+deploy/
 .dockerignore
 makefile
 Makefile
