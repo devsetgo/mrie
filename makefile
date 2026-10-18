@@ -3,7 +3,7 @@ SHELL := /bin/bash
 # Variables
 application_name = mikeryanie
 IMAGE = mikeryan56/$(application_name)
-__version__ = 2026.09.13-001
+__version__ = 2026.10.17-001
 
 PYTHON = python3
 PIP = $(PYTHON) -m pip
@@ -108,6 +108,7 @@ docker-build:  # Build the production image, tagged with the version and `latest
 docker-push: docker-build  # Build, then push both tags - deploy/docker-compose.yml pulls `latest`
 	docker push $(IMAGE):$(__version__)
 	docker push $(IMAGE):latest
+
 
 # flake8:  # Run flake8 and output report — flake8 isn't installed; ruff replaces it
 # 	flake8 --tee . > _flake8Report.txt
