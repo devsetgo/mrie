@@ -9,6 +9,7 @@ Docker Hub (`mikeryan56/mikeryanie:latest`). There's nothing to build here.
 | `.env.pre-prd` | Template for the app's `.env` (copy and fill in) |
 | `common.env.sample` | Template for the shared `/opt/docker/shared/common.env` |
 | `db-backup.sh` | Consistent snapshot of the live DB into `./backups/` |
+| `ARPHOST.md` | Step-by-step first install on the arphost server |
 
 ## What persists where
 
