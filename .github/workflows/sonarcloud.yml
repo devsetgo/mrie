@@ -58,7 +58,7 @@ jobs:
         run: PYTHONPATH=. pytest
 
       - name: SonarCloud Scan
-        uses: SonarSource/sonarqube-scan-action@v8.2.2
+        uses: SonarSource/sonarqube-scan-action@v8.4.0
         with:
           projectBaseDir: .
           args: >
