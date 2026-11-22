@@ -1,26 +1,24 @@
 {% extends "base_app.html" %}
 {% block page_title %}| Notes{% endblock %}
 {% block page_stylesheet %}
-<!-- page stylesheets-->
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/Trumbowyg/2.27.3/ui/trumbowyg.min.css"
-    integrity="sha512-Fm8kRNVGCBZn0sPmwJbVXlqfJmPC13zRsMElZenX6v721g/H7OukJd8XzDEBRQ2FSATK8xNF9UYvzsCtUpfeJg=="
-    crossorigin="anonymous" referrerpolicy="no-referrer" />
+{# page stylesheets#}
+<link rel="stylesheet" href="{{ url_for('statics', path='vendor/trumbowyg-2.27.3/ui/trumbowyg.min.css') }}?v={{ static_version('vendor/trumbowyg-2.27.3/ui/trumbowyg.min.css') }}">
 
 {% endblock %}
 {% block page_breadcrumb %} Notes / Bulk{% endblock %}
 {% block page_head_title %}Bulk Note{% endblock %}
 {% block body %}
-<!-- Main content -->
+{# Main content #}
 <div class="row">
-    <!-- left column -->
+    {# left column #}
     <div class="col-12">
-        <!-- general form elements -->
+        {# general form elements #}
         <div class="card" style="margin: 20px;">
             <div class="card-header">
                 <h3 class="card-title">Bulk Add Notes</h3>
             </div>
-            <!-- /.card-header -->
-            <!-- form start -->
+            {# /.card-header #}
+            {# form start #}
             <div class="row">
                 <div class="col-12">
                     <form action="/notes/bulk" method="post" enctype="multipart/form-data"
@@ -46,7 +44,7 @@
                     <table class="table">
                         <thead>
                             <tr>
-                            <!-- my_note,mood,date_created -->
+                            {# my_note,mood,date_created #}
                                 <th scope="col">my_note</th>
                                 <th scope="col">mood</th>
                                 <th scope="col">date_create</th>
@@ -78,14 +76,14 @@
                     </table>
                 </div>
             </div>
-            <!-- /.col -->
+            {# /.col #}
         </div>
     </div>
-    <!-- /.card -->
+    {# /.card #}
 </div>
-<!-- /.row -->
+{# /.row #}
 {% endblock %}
 
 {% block page_scripts %}
-<!-- page scripts-->
+{# page scripts#}
 {% endblock %}

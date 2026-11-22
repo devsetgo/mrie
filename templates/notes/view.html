@@ -1,7 +1,7 @@
 {% extends "base_app.html" %}
 {% block page_title %}| Notes{% endblock %}
 {% block page_stylesheet %}
-<!-- page stylesheets-->
+{# page stylesheets#}
 
 <style>
     #requirements {
@@ -13,11 +13,11 @@
 {% block page_breadcrumb %} Notes / View{% endblock %}
 {% block page_head_title %}View Note{% endblock %}
 {% block body %}
-<!-- Main content -->
+{# Main content #}
 <div class="row">
-    <!-- left column -->
+    {# left column #}
     <div class="col-12">
-        <!-- general form elements -->
+        {# general form elements #}
         <div class="card" style="margin: 20px;">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h3 class="card-title mb-0">View Note</h3>
@@ -34,11 +34,11 @@
                     {%endif%}
                 </div>
             </div>
-            <!-- /.card-header -->
-            <!-- form start -->
+            {# /.card-header #}
+            {# form start #}
             <div class="row">
                 <div class="col-12">
-                    <!-- Nav tabs -->
+                    {# Nav tabs #}
                     <ul class="nav nav-tabs" id="myTab" role="tablist">
                         <li class="nav-item">
                             <a class="nav-link active" id="details-tab" data-bs-toggle="tab" href="#details"
@@ -49,12 +49,12 @@
                                 aria-controls="info" aria-selected="false">Info</a>
                         </li>
                     </ul>
-                    <!-- Tab panes -->
+                    {# Tab panes #}
                     <div class="tab-content">
                         <div class="tab-pane active" id="details" role="tabpanel" aria-labelledby="details-tab">
-                            <!-- Begin Details Section -->
+                            {# Begin Details Section #}
                             <div class="row bg-body-secondary" style="padding: 20px; margin: 10px;">
-                                <!-- Begin Optional Fields to View -->
+                                {# Begin Optional Fields to View #}
                                 <div class="col-md-6">
                                     <div class="mb-3">
                                         <label for="summaryInput">Summary</label>
@@ -98,10 +98,10 @@
                                     </div>
                                 </div>
                             </div>
-                            <!-- End Details Section -->
+                            {# End Details Section #}
                         </div>
                         <div class="tab-pane" id="info" role="tabpanel" aria-labelledby="info-tab">
-                            <!-- Begin Info Section -->
+                            {# Begin Info Section #}
                             <div class="row bg-body-secondary" style="padding: 20px; margin: 10px;">
                                 <div class="col-md-6">
                                     <p>Date Created: {{ note.date_created }}</p>
@@ -112,30 +112,30 @@
                                     <p>Character Count: {{ note.character_count }}</p>
                                 </div>
                             </div>
-                            <!-- End Info Section -->
+                            {# End Info Section #}
                         </div>
                     </div>
                 </div>
                 <div class="col-12">
-                    <!-- Begin Note Section -->
+                    {# Begin Note Section #}
                     <div class="row bg-body-tertiary" style="padding: 20px; margin: 10px;">
                         {% include "notes/note_view_html.html" %}
                     </div>
-                    <!-- End Note Section -->
+                    {# End Note Section #}
                 </div>
-                <!-- /.col -->
+                {# /.col #}
             </div>
         </div>
-        <!-- /.card -->
+        {# /.card #}
     </div>
-    <!-- /.row -->
+    {# /.row #}
 </div>
 {% endblock %}
 
 {% block page_scripts %}
-<!-- page scripts-->
+{# page scripts#}
 {% if note.summary == "Processing..." or note.mood_analysis == "processing" %}
-<script>
+<script nonce="{{ csp_nonce() }}">
 // Auto-refresh the page when AI processing is in progress
 setTimeout(function() {
     location.reload();

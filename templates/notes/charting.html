@@ -1,6 +1,6 @@
-<!-- Begin Charting Section -->
+{# Begin Charting Section #}
 <section>
-    <!-- Row for Insight summary cards -->
+    {# Row for Insight summary cards #}
     <div class="row row-cols-2 row-cols-md-4 g-3">
         <div class="col">
             <div class="card h-100">
@@ -52,7 +52,7 @@
     {% include 'notes/data-block.html' %}
     {% endif %}
 
-    <!-- Section 1: How often you write -->
+    {# Section 1: How often you write #}
     <div class="mt-5 mb-3">
         <div class="d-flex align-items-baseline gap-2">
             <span class="badge bg-primary rounded-pill">1</span>
@@ -61,7 +61,7 @@
         <p class="text-muted mb-0 mt-1">Track your consistency and note depth over time. Steady monthly output and stable average word count usually signal sustainable journaling.</p>
     </div>
 
-    <!-- Row for Notes by Month and Word Trend -->
+    {# Row for Notes by Month and Word Trend #}
     <div class="row">
         <div class="col-lg-6">
             <div class="card">
@@ -90,7 +90,7 @@
         </div>
     </div>
 
-    <!-- Section 2: When you write -->
+    {# Section 2: When you write #}
     <div class="mt-5 mb-3">
         <div class="d-flex align-items-baseline gap-2">
             <span class="badge bg-primary rounded-pill">2</span>
@@ -101,7 +101,7 @@
         <p class="text-muted mb-0 mt-1">Your strongest writing window appears to be <strong>{{ best_day }}</strong> around <strong>{{ best_hour }}:00</strong>. Protect this slot to keep momentum.</p>
     </div>
 
-    <!-- Row for activity distribution charts -->
+    {# Row for activity distribution charts #}
     <div class="row">
         <div class="col-lg-6">
             <div class="card">
@@ -125,7 +125,7 @@
         </div>
     </div>
 
-    <!-- Section 3: How mood changes -->
+    {# Section 3: How mood changes #}
     <div class="mt-5 mb-3">
         <div class="d-flex align-items-baseline gap-2">
             <span class="badge bg-primary rounded-pill">3</span>
@@ -134,7 +134,7 @@
         <p class="text-muted mb-0 mt-1" id="mood-takeaway-text">Use this trend to spot drift early. Rising volatility with a flat or declining mean can be a signal to review routines, sleep, or workload.</p>
     </div>
 
-    <!-- Row for Mood Trend chart -->
+    {# Row for Mood Trend chart #}
     <div class="row">
         <div class="col-12">
             <div class="card">
@@ -151,7 +151,7 @@
         </div>
     </div>
 
-    <!-- Section 4: What themes are changing -->
+    {# Section 4: What themes are changing #}
     <div class="mt-5 mb-3">
         <div class="d-flex align-items-baseline gap-2">
             <span class="badge bg-primary rounded-pill">4</span>
@@ -162,7 +162,7 @@
         <p class="text-muted mb-0 mt-1">Theme shifts reveal where attention is moving. You currently have <strong>{{ rising_count }}</strong> rising and <strong>{{ falling_count }}</strong> falling tag trends.</p>
     </div>
 
-    <!-- Row for milestones and tag trends -->
+    {# Row for milestones and tag trends #}
     <div class="row">
         <div class="col-lg-6">
             <div class="card">
@@ -225,7 +225,7 @@
         </div>
     </div>
 
-    <!-- Row for mood-tag chart -->
+    {# Row for mood-tag chart #}
     <div class="row">
         <div class="col-12">
             <div class="card">
@@ -240,4 +240,4 @@
     </div>
 
 </section>
-<!-- End Charting Section -->
+{# End Charting Section #}

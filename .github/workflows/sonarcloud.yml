@@ -1,5 +1,10 @@
 name: SonarCloud
 on:
+  # push to main keeps the project baseline current: without it main was
+  # never re-analyzed after a merge, so its issue list went stale and every
+  # PR was compared against an old snapshot.
+  push:
+    branches: [main]
   pull_request:
     types: [opened, synchronize, reopened]
 jobs:

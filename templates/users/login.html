@@ -21,8 +21,8 @@
 </div>
 {% endblock %}
 {% block page_scripts %}
-<script src="{{ url_for('statics', path='js/webauthn.js') }}?v={{ static_version('js/webauthn.js') }}"></script>
-<script>
+<script nonce="{{ csp_nonce() }}" src="{{ url_for('statics', path='js/webauthn.js') }}?v={{ static_version('js/webauthn.js') }}"></script>
+<script nonce="{{ csp_nonce() }}">
   document.getElementById("login-btn").addEventListener("click", () => {
     passkeyLogin(document.getElementById("login-status"));
   });

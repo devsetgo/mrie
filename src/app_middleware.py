@@ -9,6 +9,7 @@ from loguru import logger
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
+from src.functions.security_headers import SecurityHeadersMiddleware
 from src.settings import settings
 
 
@@ -53,6 +54,11 @@ def add_middleware(app: FastAPI) -> NoReturn:  # pragma: no cover
         logger.debug("AccessLoggerMiddleware added")
     else:
         logger.info("Surpressing AccessLoggerMiddleware as not running with uvicorn")
+
+    # Added last so it is the outermost layer: every response, including
+    # error pages and redirects, gets the CSP and the other security headers,
+    # and request.state.csp_nonce is set before any template renders.
+    app.add_middleware(SecurityHeadersMiddleware)
 
 
 # `cookie` carries the signed session cookie - anyone holding a copy can

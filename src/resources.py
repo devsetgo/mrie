@@ -3,6 +3,7 @@ import os
 
 from dsg_lib.async_database_functions import database_operations
 from fastapi.templating import Jinja2Templates
+from jinja2 import pass_context
 from loguru import logger
 from sqlalchemy import Select, text
 from sqlalchemy.exc import IntegrityError
@@ -41,6 +42,22 @@ def static_version(path: str) -> int:
 
 
 templates.env.globals["static_version"] = static_version
+
+
+@pass_context
+def csp_nonce(context) -> str:
+    """
+    The current request's CSP nonce, for `<script nonce="{{ csp_nonce() }}">`.
+    SecurityHeadersMiddleware generates it per request. Returns "" when there
+    is no request or middleware (e.g. a template rendered in isolation in a
+    test), which only means that script would be blocked under the policy.
+    """
+    request = context.get("request")
+    state = getattr(request, "state", None)
+    return getattr(state, "csp_nonce", "") or ""
+
+
+templates.env.globals["csp_nonce"] = csp_nonce
 
 
 def safe_href(url) -> str:

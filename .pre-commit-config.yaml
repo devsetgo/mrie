@@ -1,3 +1,6 @@
+# Third-party files copied byte-for-byte (see static/vendor/README.md): a
+# hook rewriting them would break static/vendor/SHA256SUMS.
+exclude: ^static/vendor/
 repos:
 -   repo: https://github.com/astral-sh/ruff-pre-commit
     # Must stay in sync with requirements/dev.txt's ruff pin, or `make ruff`
@@ -7,7 +10,7 @@ repos:
     # autoflake (unused imports, rule F401) - configured in pyproject.toml
     # under [tool.ruff]. Order matters: ruff-check --fix runs first so that
     # ruff-format sees the final import layout.
-    rev: v0.17.1
+    rev: v0.17.6
     hooks:
       # --no-unsafe-fixes overrides `unsafe-fixes = true` in pyproject.toml
       # for this hook only: an auto-run commit hook shouldn't silently rewrite

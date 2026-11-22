@@ -374,3 +374,12 @@ def test_reanalysis_is_post_only(logged_in_client, mock_weblink_externals):
         follow_redirects=False,
     )
     assert response.status_code == 405
+
+
+def test_new_weblink_page_loads_categories_from_real_endpoint(logged_in_client):
+    # The category <select> is required and filled by JS; it used to fetch
+    # the nonexistent /posts/categories, leaving the form unsubmittable.
+    page = logged_in_client.get("/weblinks/new").text
+    assert "/weblinks/categories" in page
+    assert "/posts/" not in page
+    assert logged_in_client.get("/weblinks/categories").status_code == 200

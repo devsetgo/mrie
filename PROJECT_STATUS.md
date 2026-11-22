@@ -606,6 +606,65 @@ over, notes get re-imported through the CSV import.
   image, so production simply has no previews. Open decision: bake Chrome
   into the image (about 400 MB) if previews are wanted there.
 
+## Security headers, CSP and vendored front-end (2026-11-21)
+
+Prompted by Mozilla Observatory (CSP −25, SRI −5) and securityheaders.com
+(grade B: no CSP, no Permissions-Policy) against the live site.
+
+- `src/functions/security_headers.py::SecurityHeadersMiddleware` (pure
+  ASGI, the outermost layer) adds a Content-Security-Policy with a fresh
+  per-request nonce, `Permissions-Policy` (unused features off; the
+  passkey features are left at their default, `self`),
+  `Cross-Origin-Opener-Policy: same-origin` and
+  `Cross-Origin-Resource-Policy: same-origin`. HSTS, X-Frame-Options,
+  nosniff and Referrer-Policy were already added by Cloudflare/Traefik,
+  so the app doesn't set them twice.
+- Policy: scripts only from `'self'` plus the nonce (and the Plausible
+  host from `PLAUSIBLE_SCRIPT_SRC`). `style-src` keeps `'unsafe-inline'`
+  because the templates use `style=""` throughout. Violations go to
+  `POST /csp-report` (public, body capped at 16 KB, logged as
+  `CSP violation: ...` warnings). It uses `report-uri` only: Chrome
+  ignores `report-uri` when `report-to` is present, and headless Chrome
+  never delivered the batched `report-to` reports in testing.
+- **Rollout:** ships as `Content-Security-Policy-Report-Only`
+  (`CSP_ENFORCE=False`). Set `CSP_ENFORCE=True` once normal use of every
+  page logs no violations.
+- Every CDN script, stylesheet and font (MDB, Bootstrap, jQuery,
+  Chart.js + plugins, htmx, Trumbowyg, Font Awesome, Roboto) is vendored
+  under `static/vendor/<lib>-<version>/`, with sources and upgrade steps
+  in `static/vendor/README.md` and `SHA256SUMS`. This also pinned three
+  previously unversioned URLs (chart.js → 4.6.1, chartjs-adapter-date-fns
+  → 3.0.0) and replaced the Font Awesome kit (free 6.7.2 + v4 shims, same
+  set). The weblink pages' jQuery 3.5.1 from googleapis became the shared
+  3.7.1. The EasyMDE stylesheet was removed: its JS was never loaded.
+  Mozilla's SRI check no longer applies, since no third-party scripts
+  remain (Plausible is your own host).
+- Every `<script>` in `templates/` carries `nonce="{{ csp_nonce() }}"`;
+  the three inline `onclick=` handlers became `addEventListener` calls.
+- `/docs`, `/redoc` and `/openapi.json` are now dev-only (they were
+  public in production).
+- Every dynamic response gets `Cache-Control: no-store` unless the route
+  set its own (`/about/images` keeps its one-year immutable cache;
+  `/statics/` is untouched), so journal pages don't stay in the browser
+  cache or back/forward history after logout.
+- All 200 `<!-- -->` comments in `templates/` became `{# #}` Jinja
+  comments, so internal notes no longer ship to visitors (ZAP's
+  "Suspicious Comments" warning).
+- Found by the browser check: `weblinks/new.html` fetched categories from
+  the nonexistent `/posts/categories`, so the required category dropdown
+  stayed empty and the New WebLink form couldn't be submitted. Now
+  `/weblinks/categories`, with options built via `.val()`/`.text()`.
+- A ZAP baseline scan against the old production build had 0 failures and
+  10 warnings. These changes address CSP, Permissions-Policy, cross-domain
+  JS, SRI, cache-control and comments. COEP is deliberately not set:
+  `require-corp` would break the YouTube embeds and remote note images.
+- Verified with headless Chrome against a local server: 13 pages
+  (public, and logged in through dev-login) produced no violations, and
+  a deliberate un-nonced inline script was reported to `/csp-report`.
+  `tests/test_security_headers.py` checks every page's scripts carry the
+  nonce, that no third-party asset URLs remain, and that every vendored
+  path a template references exists.
+
 ## Decisions
 
 1. **Login mechanism**: Resolved — WebAuthn/passkey, see Phase 1.
@@ -697,6 +756,9 @@ Needed for features to work: `WEBAUTHN_RP_ID`, `WEBAUTHN_RP_NAME`,
 `WEBAUTHN_ORIGIN`, `ADMIN_USER`, `REGISTRATION_BOOTSTRAP_TOKEN` (only
 needed until the first passkey is registered — see Auth), `OPENAI_KEY`,
 `PLAUSIBLE_DOMAIN`, `PLAUSIBLE_SCRIPT_SRC`.
+
+Optional: `CSP_ENFORCE` (default `False`, Report-Only) - see
+"Security headers, CSP and vendored front-end".
 
 Dev-only, never set in production: `DEV_FAKE_LOGIN_ENABLED` — see "Dev
 fake-login" below.

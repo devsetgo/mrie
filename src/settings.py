@@ -181,6 +181,10 @@ class Settings(BaseSettings):
     # self-hosted Plausible analytics
     plausible_domain: str = "mikeryan.ie"
     plausible_script_src: str = ""
+    # False sends the policy as Content-Security-Policy-Report-Only: the
+    # browser only reports violations (logged via POST /csp-report) and
+    # blocks nothing. Set True once the logs stay quiet in normal use.
+    csp_enforce: bool = False
 
     @model_validator(mode="before")
     @classmethod

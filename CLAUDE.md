@@ -206,6 +206,23 @@ the package is missing. Anything that acts (re-analysis, AI fix, logout)
 is a `POST` with a `303` redirect, never a `GET`: a cross-site top-level
 `GET` carries `SameSite=Lax` cookies.
 
+### Content-Security-Policy
+`src/functions/security_headers.py` sends a CSP with a per-request nonce
+(Report-Only until `CSP_ENFORCE=True`; violations are logged via
+`POST /csp-report`). Every `<script>` tag, inline or not, needs
+`nonce="{{ csp_nonce() }}"`. Never write inline event handlers
+(`onclick="..."`): attach listeners from a nonce'd script. Never load a
+script, stylesheet or font from a CDN: vendor it under
+`static/vendor/<lib>-<version>/` and follow `static/vendor/README.md`
+(it records sources and `SHA256SUMS`; pre-commit hooks skip that folder).
+A new outside host the browser must reach (an embed, an API called from
+JS) needs adding to `build_csp()`. `/docs`, `/redoc` and `/openapi.json`
+exist only in a dev `release_env`.
+Write template comments as `{# #}`, never `<!-- -->` (HTML comments ship
+to every visitor). The middleware also sends `Cache-Control: no-store` on
+every non-static response that doesn't set its own, so a route that
+should be cacheable must set `Cache-Control` itself.
+
 ### Optional-dependency pattern
 `selenium`/`webdriver_manager`, `silly` and `tqdm` are pinned in
 `requirements/optional.txt`, not `prd.txt`, so neither the production image
@@ -288,6 +305,8 @@ file's mtime for cache-busting (`?v=...`). Any `<script src="{{
 url_for('statics', ...) }}">` should go through it — a stale cached copy
 of `static/js/webauthn.js` was the direct cause of a hard-to-diagnose bug
 (see `PROJECT_STATUS.md`).
+Vendored libraries go through it too
+(`path='vendor/...'`), even though their folder names already carry the version.
 
 ## Gotchas
 
