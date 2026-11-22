@@ -20,6 +20,34 @@ from src.resources import templates
 from src.settings import settings
 
 
+async def csp_report(request: Request) -> Response:
+    """
+    Logs Content-Security-Policy violation reports the browser sends
+    (see src/functions/security_headers.py). Public, because the
+    logged-out pages report too. Always 204: the browser never reads the
+    reply, and an error here would only make it retry.
+    """
+    body = b""
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > CSP_REPORT_MAX_BYTES:
+            logger.warning("CSP report over size limit, ignored")
+            return Response(status_code=204)
+    try:
+        payload = json.loads(body or b"null")
+    except ValueError:
+        return Response(status_code=204)
+    for report in summarize_csp_reports(payload):
+        # !r quotes the values, so a newline in attacker-supplied text
+        # can't forge a separate log line.
+        logger.warning(
+            "CSP violation: directive={directive!r} blocked={blocked!r} "
+            "page={page!r} source={source!r} line={line!r}",
+            **report,
+        )
+    return Response(status_code=204)
+
+
 def create_routes(app: FastAPI) -> NoReturn:
     logger.info("creating routes")
     app.mount("/statics", StaticFiles(directory="static"), name="statics")
@@ -188,33 +216,13 @@ def create_routes(app: FastAPI) -> NoReturn:
             request=request, name="error/error-page.html", context=context
         )
 
-    @app.post(CSP_REPORT_PATH, include_in_schema=False, status_code=204)
-    async def csp_report(request: Request) -> Response:
-        """
-        Logs Content-Security-Policy violation reports the browser sends
-        (see src/functions/security_headers.py). Public, because the
-        logged-out pages report too. Always 204: the browser never reads the
-        reply, and an error here would only make it retry.
-        """
-        body = b""
-        async for chunk in request.stream():
-            body += chunk
-            if len(body) > CSP_REPORT_MAX_BYTES:
-                logger.warning("CSP report over size limit, ignored")
-                return Response(status_code=204)
-        try:
-            payload = json.loads(body or b"null")
-        except ValueError:
-            return Response(status_code=204)
-        for report in summarize_csp_reports(payload):
-            # !r quotes the values, so a newline in attacker-supplied text
-            # can't forge a separate log line.
-            logger.warning(
-                "CSP violation: directive={directive!r} blocked={blocked!r} "
-                "page={page!r} source={source!r} line={line!r}",
-                **report,
-            )
-        return Response(status_code=204)
+    app.add_api_route(
+        CSP_REPORT_PATH,
+        csp_report,
+        methods=["POST"],
+        include_in_schema=False,
+        status_code=204,
+    )
 
     # This should always be the last route added to keep it at the bottom of the OpenAPI docs
     config_health = {

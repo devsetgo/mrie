@@ -67,7 +67,9 @@ def test_permissions_policy_leaves_passkeys_alone(client):
 
 
 def test_nonce_is_fresh_per_request(client):
-    assert _nonce(client.get("/")) != _nonce(client.get("/"))
+    first = _nonce(client.get("/"))
+    second = _nonce(client.get("/"))
+    assert first != second
 
 
 def test_redirects_and_error_pages_get_headers_too(client):

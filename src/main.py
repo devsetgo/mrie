@@ -30,9 +30,13 @@ logging_config.config_log(
 async def lifespan(app: FastAPI):  # pragma: no cover
     logger.info("starting up")
     await startup_event()
-    yield
-    await shutdown_event()
-    logger.info("shutting down")
+    try:
+        yield
+    finally:
+        # Runs even when the app exits with an error, so the DB engine is
+        # always disposed (WAL checkpoint, no dangling connections).
+        await shutdown_event()
+        logger.info("shutting down")
 
 
 # Create an instance of the FastAPI class
