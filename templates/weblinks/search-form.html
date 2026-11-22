@@ -4,7 +4,7 @@
             <h3 class="card-title">Search Form</h3>
         </div>
         <div class="card-body">
-            <!-- Begin Search Form -->
+            {# Begin Search Form #}
             <form hx-get="/weblinks/pagination" hx-trigger="submit" hx-target="#links-data"
                 hx-indicator=".htmx-indicator">
                 <div class="row">
@@ -19,8 +19,8 @@
                             <option value="">Select Category</option>
                         </select>
                     </div>
-                    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
-                    <script>
+                    <script nonce="{{ csp_nonce() }}" src="{{ url_for('statics', path='vendor/jquery-3.7.1/jquery.min.js') }}?v={{ static_version('vendor/jquery-3.7.1/jquery.min.js') }}"></script>
+                    <script nonce="{{ csp_nonce() }}">
                         $(document).ready(function () {
                             $.getJSON('/weblinks/categories', function (data) {
                                 $.each(data, function (index, value) {
@@ -33,7 +33,7 @@
                         <button class="btn btn-primary" type="submit">Search</button>
                     </div>
                 </div>
-                <!-- Date range inputs -->
+                {# Date range inputs #}
                 <div class="row mt-3">
                     <div class="col-md-4">
                         <label for="start_date">From Date</label>
@@ -44,11 +44,11 @@
                         <label for="end_date">To Date</label>
                         <input id="end_date" class="form-control" type="date" name="end_date" placeholder="To Date">
                     </div>
-                    <!-- ... rest of the form ... -->
+                    {# ... rest of the form ... #}
                     <div class="col-md-4 d-flex align-items-end">
                         <button class="btn btn-warning" type="button" id="resetButton">Reset</button>
                     </div>
-                    <script>
+                    <script nonce="{{ csp_nonce() }}">
                         document.getElementById('resetButton').addEventListener('click', function () {
                             // Get the form
                             var form = this.closest('form');
@@ -60,10 +60,10 @@
                             // form.submit();
                         });
                     </script>
-                    <!-- ... rest of the form ... -->
+                    {# ... rest of the form ... #}
                 </div>
             </form>
-            <!-- End Search Form -->
+            {# End Search Form #}
         </div>
     </div>
 </div>

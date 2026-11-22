@@ -5,6 +5,7 @@ About page edit + image upload coverage (src/endpoints/about.py). Viewing
 """
 
 import base64
+import re
 from html.parser import HTMLParser
 
 import pytest
@@ -205,11 +206,18 @@ def test_generate_from_uploaded_file_prefers_the_file(logged_in_client, fake_abo
     assert fake_about_ai[0]["text"] == "Staff engineer"
 
 
+def _without_nonce(html: str) -> str:
+    # The CSP nonce is fresh on every response, so two renders of an
+    # unchanged page only match once it is blanked out.
+    return re.sub(r'nonce="[^"]*"', 'nonce=""', html)
+
+
 def test_generate_does_not_save_the_page(logged_in_client, fake_about_ai):
-    before = logged_in_client.get("/about").text
+    before = _without_nonce(logged_in_client.get("/about").text)
     logged_in_client.post("/about/generate-from-resume", data={"resume_text": "x"})
-    assert "Builder of" not in logged_in_client.get("/about").text
-    assert logged_in_client.get("/about").text == before
+    after = _without_nonce(logged_in_client.get("/about").text)
+    assert "Builder of" not in after
+    assert after == before
 
 
 def test_generate_requires_input(logged_in_client, fake_about_ai):

@@ -1,26 +1,25 @@
 {% extends "base_app.html" %}
 {% block page_title %}| WebLink{% endblock %}
 {% block page_stylesheet %}
-<!-- page stylesheets-->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.css" />
-<!-- <style>.CodeMirror, .editor-preview-side {
+{# page stylesheets#}
+{# <style>.CodeMirror, .editor-preview-side {
       width: 50% !important;
-  }</style> -->
+  }</style> #}
 {% endblock %}
 {% block page_breadcrumb %} WebLink / Edit{% endblock %}
 {% block page_head_title %}WebLink{% endblock %}
 {% block body %}
-<!-- Main content -->
+{# Main content #}
 <div class="row">
-    <!-- left column -->
+    {# left column #}
     <div class="col-12">
-        <!-- general form elements -->
+        {# general form elements #}
         <div class="card">
             <div class="card-header">
                 <h3 class="card-title">Update WebLink</h3>
             </div>
-            <!-- /.card-header -->
-            <!-- form start -->
+            {# /.card-header #}
+            {# form start #}
             <div class="col-12">
                 <form action="/weblinks/update/comment/{{ weblink.pkid }}" method="post" enctype="multipart/form-data" hx-indicator=".htmx-indicator">
                     <div class="mb-2">
@@ -50,14 +49,14 @@
                             </div>
                         </div>
                     </div>
-                    <!-- New textarea for comments -->
+                    {# New textarea for comments #}
                     <div class="mb-2">
                         <label for="comment" class="col-form-label">Comment: </label>
                         <textarea class="form-control" name="comment" id="comment" rows="4" maxlength="1000"
                             placeholder="Enter your comment here...">{{ weblink.comment }}</textarea>
                     </div>
-                    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
-                    <script>
+                    <script nonce="{{ csp_nonce() }}" src="{{ url_for('statics', path='vendor/jquery-3.7.1/jquery.min.js') }}?v={{ static_version('vendor/jquery-3.7.1/jquery.min.js') }}"></script>
+                    <script nonce="{{ csp_nonce() }}">
                         $(document).ready(function () {
                             $.getJSON('/weblinks/categories', function (data) {
                                 $.each(data, function (index, value) {
@@ -72,9 +71,9 @@
                     </div>
                 </form>
 
-                <!-- Delete Button with Confirmation -->
+                {# Delete Button with Confirmation #}
                 <div class="input-group mb-2">
-                    <button type="button" class="btn btn-danger btn-block" onclick="confirmDelete()" title="Delete WebLink">
+                    <button type="button" id="delete-weblink-btn" class="btn btn-danger btn-block" title="Delete WebLink">
                         <i class="fas fa-trash"></i> Delete WebLink
                     </button>
                 </div>
@@ -85,12 +84,14 @@
 {% endblock %}
 
 {% block page_scripts %}
-<!-- page scripts-->
-<script>
+{# page scripts#}
+<script nonce="{{ csp_nonce() }}">
 function confirmDelete() {
     if (confirm('Are you sure you want to delete this weblink? This action cannot be undone.')) {
         window.location.href = '/weblinks/delete/{{ weblink.pkid }}';
     }
 }
+// A listener rather than onclick="": see the CSP note in weblinks/view.html.
+document.getElementById('delete-weblink-btn').addEventListener('click', confirmDelete);
 </script>
 {% endblock %}

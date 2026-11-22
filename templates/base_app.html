@@ -5,9 +5,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>mikeryan.ie {% block page_title %}{% endblock %}</title>
-  <!-- Applied before any CSS loads, so there is no flash of the wrong theme
-       on first paint. Reads the same key admin.js writes to on toggle. -->
-  <script>
+  {# Applied before any CSS loads, so there is no flash of the wrong theme
+       on first paint. Reads the same key admin.js writes to on toggle. #}
+  <script nonce="{{ csp_nonce() }}">
     (function () {
       try {
         var saved = localStorage.getItem("mrie-theme");
@@ -18,19 +18,20 @@
       }
     })();
   </script>
-  <!-- MDB UI Kit: a Material-Design layer that's a drop-in superset of
+  {# MDB UI Kit: a Material-Design layer that's a drop-in superset of
        Bootstrap 5 (same class vocabulary - .card, .btn, .form-select,
        .dropdown-menu, .collapse, etc. all still work unchanged in every
        page's body content). Version pinned deliberately - bumping it
-       later is a one-line change, same as the Bootstrap 4->5 upgrade was. -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/mdb-ui-kit@9.3.0/css/mdb.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap">
+       later is a one-line change, same as the Bootstrap 4->5 upgrade was. #}
+  <link rel="stylesheet" href="{{ url_for('statics', path='vendor/mdb-ui-kit-9.3.0/mdb.min.css') }}?v={{ static_version('vendor/mdb-ui-kit-9.3.0/mdb.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('statics', path='vendor/roboto-5.3.0/roboto.css') }}?v={{ static_version('vendor/roboto-5.3.0/roboto.css') }}">
   <link rel="stylesheet" href="{{ url_for('statics', path='css/admin.css') }}?v={{ static_version('css/admin.css') }}">
   <link rel="icon" href="{{ url_for('statics', path='img/favicon.png') }}">
   <link rel="SHORTCUT ICON" href="{{ url_for('statics', path='img/favicon.png') }}">
-  <script src="https://kit.fontawesome.com/797985f458.js" crossorigin="anonymous"></script>
+  <link rel="stylesheet" href="{{ url_for('statics', path='vendor/fontawesome-free-6.7.2/css/all.min.css') }}?v={{ static_version('vendor/fontawesome-free-6.7.2/css/all.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('statics', path='vendor/fontawesome-free-6.7.2/css/v4-shims.min.css') }}?v={{ static_version('vendor/fontawesome-free-6.7.2/css/v4-shims.min.css') }}">
   {% if plausible_domain and plausible_script_src %}
-  <script defer data-domain="{{ plausible_domain }}" src="{{ plausible_script_src }}"></script>
+  <script nonce="{{ csp_nonce() }}" defer data-domain="{{ plausible_domain }}" src="{{ plausible_script_src }}"></script>
   {% endif %}
   <style>
     body { font-family: 'Roboto', Arial, Helvetica, sans-serif; }
@@ -143,24 +144,24 @@
     </footer>
   </div>
 
-  <!-- MDB core JS (Material components, ripple, the data-mdb-theme dark
-       mode this shell's markup above uses directly). -->
-  <script src="https://cdn.jsdelivr.net/npm/mdb-ui-kit@9.3.0/js/mdb.umd.min.js"></script>
-  <!-- Bootstrap's own JS bundle is kept ONLY as a bridge: every page's
+  {# MDB core JS (Material components, ripple, the data-mdb-theme dark
+       mode this shell's markup above uses directly). #}
+  <script nonce="{{ csp_nonce() }}" src="{{ url_for('statics', path='vendor/mdb-ui-kit-9.3.0/mdb.umd.min.js') }}?v={{ static_version('vendor/mdb-ui-kit-9.3.0/mdb.umd.min.js') }}"></script>
+  {# Bootstrap's own JS bundle is kept ONLY as a bridge: every page's
        body content still uses data-bs-toggle/data-bs-target (tabs,
        collapses) from before this shell swap, and MDB's JS does not
        recognize that attribute namespace at all. Once those pages get
        their own MDB-style pass (tracked as follow-on work, not this
        change), their data-bs-* can migrate to data-mdb-* and this line
-       can be removed. -->
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="{{ url_for('statics', path='js/admin.js') }}?v={{ static_version('js/admin.js') }}"></script>
-  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-  <script src="https://unpkg.com/htmx.org@2.0.3"></script>
+       can be removed. #}
+  <script nonce="{{ csp_nonce() }}" src="{{ url_for('statics', path='vendor/bootstrap-5.3.3/bootstrap.bundle.min.js') }}?v={{ static_version('vendor/bootstrap-5.3.3/bootstrap.bundle.min.js') }}"></script>
+  <script nonce="{{ csp_nonce() }}" src="{{ url_for('statics', path='js/admin.js') }}?v={{ static_version('js/admin.js') }}"></script>
+  <script nonce="{{ csp_nonce() }}" src="{{ url_for('statics', path='vendor/jquery-3.7.1/jquery.min.js') }}?v={{ static_version('vendor/jquery-3.7.1/jquery.min.js') }}"></script>
+  <script nonce="{{ csp_nonce() }}" src="{{ url_for('statics', path='vendor/chartjs-4.6.1/chart.umd.min.js') }}?v={{ static_version('vendor/chartjs-4.6.1/chart.umd.min.js') }}"></script>
+  <script nonce="{{ csp_nonce() }}" src="{{ url_for('statics', path='vendor/hammerjs-2.0.8/hammer.min.js') }}?v={{ static_version('vendor/hammerjs-2.0.8/hammer.min.js') }}"></script>
+  <script nonce="{{ csp_nonce() }}" src="{{ url_for('statics', path='vendor/chartjs-plugin-zoom-2.0.1/chartjs-plugin-zoom.min.js') }}?v={{ static_version('vendor/chartjs-plugin-zoom-2.0.1/chartjs-plugin-zoom.min.js') }}"></script>
+  <script nonce="{{ csp_nonce() }}" src="{{ url_for('statics', path='vendor/chartjs-adapter-date-fns-3.0.0/chartjs-adapter-date-fns.bundle.min.js') }}?v={{ static_version('vendor/chartjs-adapter-date-fns-3.0.0/chartjs-adapter-date-fns.bundle.min.js') }}"></script>
+  <script nonce="{{ csp_nonce() }}" src="{{ url_for('statics', path='vendor/htmx-2.0.3/htmx.min.js') }}?v={{ static_version('vendor/htmx-2.0.3/htmx.min.js') }}"></script>
   {% block page_scripts %}{% endblock %}
 </body>
 

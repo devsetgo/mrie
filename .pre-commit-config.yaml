@@ -1,3 +1,6 @@
+# Third-party files copied byte-for-byte (see static/vendor/README.md): a
+# hook rewriting them would break static/vendor/SHA256SUMS.
+exclude: ^static/vendor/
 repos:
 -   repo: https://github.com/astral-sh/ruff-pre-commit
     # Must stay in sync with requirements/dev.txt's ruff pin, or `make ruff`

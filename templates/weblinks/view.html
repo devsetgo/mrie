@@ -1,7 +1,7 @@
 {% extends "base_app.html" %}
 {% block page_title %}| WebLinks{% endblock %}
 {% block page_stylesheet %}
-<!-- page stylesheets-->
+{# page stylesheets#}
 <style>
     .modal {
         display: none;
@@ -99,7 +99,7 @@
 {% block page_breadcrumb %} WebLinks{% endblock %}
 {% block page_head_title %}WebLinks{% endblock %}
 {% block body %}
-<!-- Main content -->
+{# Main content #}
 <div class="row">
     <div class="col-12">
         <div class="card" style="margin: 20px;">
@@ -212,26 +212,26 @@
                 </div>
                 <div class="col-12">
                     <div class="row bg-body-tertiary" style="padding: 20px; margin: 10px;">
-                        <!-- Additional content can go here -->
+                        {# Additional content can go here #}
                     </div>
                 </div>
             </div>
         </div>
     </div>
 </div>
-<!-- The Modal -->
+{# The Modal #}
 <div id="myModal" class="modal">
-    <span class="close" onclick="closeModal()">&times;</span>
+    <span class="close" data-close-modal>&times;</span>
     <img class="modal-content" id="modalImage">
     <div class="caption" id="caption"></div>
-    <button class="close-btn" onclick="closeModal()">Close</button>
+    <button class="close-btn" data-close-modal>Close</button>
 </div>
 {% endblock %}
 
 {% block page_scripts %}
-<!-- page scripts-->
+{# page scripts#}
 {% if weblink.title == "Processing" or weblink.summary == "Processing" %}
-<script>
+<script nonce="{{ csp_nonce() }}">
     // Title/summary are filled in by a background task - reload until they
     // arrive, but give up after about a minute: if AI is unavailable the
     // placeholders stay for good, and reloading forever helps nobody.
@@ -246,11 +246,11 @@
     })();
 </script>
 {% else %}
-<script>
+<script nonce="{{ csp_nonce() }}">
     try { sessionStorage.removeItem("weblink-refresh-{{ weblink.pkid }}"); } catch (e) {}
 </script>
 {% endif %}
-<script>
+<script nonce="{{ csp_nonce() }}">
     function openModal(img) {
         var modal = document.getElementById("myModal");
         var modalImg = document.getElementById("modalImage");
@@ -264,5 +264,11 @@
         var modal = document.getElementById("myModal");
         modal.style.display = "none";
     }
+
+    // Listeners instead of onclick="" attributes: the Content-Security-Policy
+    // only runs script that carries this page's nonce, and inline handlers can't.
+    document.querySelectorAll("[data-close-modal]").forEach(function (el) {
+        el.addEventListener("click", closeModal);
+    });
 </script>
 {% endblock %}

@@ -1,8 +1,8 @@
-{% extends "base_app.html" %} <!-- Extends the base HTML layout -->
-{% block page_title %}| Dashboard{% endblock %} <!-- Sets the page title -->
-{% block page_breadcrumb %} Dashboard{% endblock %} <!-- Sets the breadcrumb -->
-{% block page_head_title %}Dashboard{% endblock %} <!-- Sets the page head title -->
-{% block body %} <!-- Starts the block for the body of the page -->
+{% extends "base_app.html" %} {# Extends the base HTML layout #}
+{% block page_title %}| Dashboard{% endblock %} {# Sets the page title #}
+{% block page_breadcrumb %} Dashboard{% endblock %} {# Sets the breadcrumb #}
+{% block page_head_title %}Dashboard{% endblock %} {# Sets the page head title #}
+{% block body %} {# Starts the block for the body of the page #}
 <div class="container-fluid">
   <div hx-get="/notes/metrics/counts" hx-trigger="load" hx-indicator=".htmx-indicator">Loading....</div>
   {% include 'notes/charting.html' %}
@@ -10,9 +10,9 @@
 {% endblock %}
 
 {% block page_scripts %}
-<!-- Start of page scripts block -->
-<!-- Mood Trend by Month -->
-<script>
+{# Start of page scripts block #}
+{# Mood Trend by Month #}
+<script nonce="{{ csp_nonce() }}">
   // Data for the chart
   const metricsMood = {{ metrics.mood_trend_by_month | safe }};
   const metricsMoodMedian = {{ metrics.mood_trend_by_median_month | safe }};
@@ -148,8 +148,8 @@
     }
   }
 </script>
-<!-- Notes by Month -->
-<script>
+{# Notes by Month #}
+<script nonce="{{ csp_nonce() }}">
   // Data for the chart
   const metricsMonth = {{ metrics.note_count_by_month| safe}};
 
@@ -220,8 +220,8 @@
   // Create the chart
   createChart('monthChart', metricsMonth);
 </script>
-<!-- Activity by Day of Week -->
-<script>
+{# Activity by Day of Week #}
+<script nonce="{{ csp_nonce() }}">
   const activityByDay = {{ (metrics.activity_by_day_of_week or {}) | tojson | safe }};
   const dayLabels = Object.keys(activityByDay);
   const dayValues = Object.values(activityByDay);
@@ -247,8 +247,8 @@
     });
   }
 </script>
-<!-- Activity by Hour -->
-<script>
+{# Activity by Hour #}
+<script nonce="{{ csp_nonce() }}">
   const activityByHour = {{ (metrics.activity_by_hour or {}) | tojson | safe }};
   const hourLabels = Object.keys(activityByHour);
   const hourValues = Object.values(activityByHour);
@@ -276,8 +276,8 @@
     });
   }
 </script>
-<!-- Mood-Tag Correlation -->
-<script>
+{# Mood-Tag Correlation #}
+<script nonce="{{ csp_nonce() }}">
   const moodTagCorrelation = {{ (metrics.mood_tag_correlation or {}) | tojson | safe }};
   const positiveTags = moodTagCorrelation.positive || {};
   const negativeTags = moodTagCorrelation.negative || {};
@@ -309,8 +309,8 @@
     });
   }
 </script>
-<!-- Word Trend by Month -->
-<script>
+{# Word Trend by Month #}
+<script nonce="{{ csp_nonce() }}">
   const wordTrendByMonth = {{ (metrics.word_trend_by_month or {}) | tojson | safe }};
   const wordTrendLabels = Object.keys(wordTrendByMonth);
 
@@ -349,4 +349,4 @@
   }
 </script>
 {% endblock %}
-<!-- End of page scripts block -->
+{# End of page scripts block #}

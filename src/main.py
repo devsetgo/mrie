@@ -40,9 +40,11 @@ app = FastAPI(
     title="DevSetGo.com",  # The title of the API
     description="Website for devsetgo.com",  # A brief description of the API
     version=settings.version,  # The version of the API
-    docs_url="/docs",  # The URL where the API documentation will be served
-    redoc_url="/redoc",  # The URL where the ReDoc documentation will be served
-    openapi_url="/openapi.json",  # The URL where the OpenAPI schema will be served
+    # API docs only in dev: in production they would hand anyone a map of
+    # every endpoint and parameter, and nothing in the app consumes them.
+    docs_url="/docs" if settings.is_dev_environment else None,
+    redoc_url="/redoc" if settings.is_dev_environment else None,
+    openapi_url="/openapi.json" if settings.is_dev_environment else None,
     debug=settings.debug_mode,  # Enable debug mode
     middleware=[],  # A list of middleware to include in the application
     routes=[],  # A list of routes to include in the application

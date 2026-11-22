@@ -3,7 +3,7 @@
 <div class="col-md-12">
     <div class="card">
         <div class="card-body">
-            <!-- Begin Search Form -->
+            {# Begin Search Form #}
             <form id="notes-search-form" hx-get="/notes/pagination" hx-trigger="submit" hx-target="#notes-data"
                   hx-indicator=".htmx-indicator" hx-push-url="true">
                 <div class="row g-2 align-items-end">
@@ -32,7 +32,7 @@
                     </div>
                 </div>
 
-                <!-- Tags and date range - collapsed unless one is already active -->
+                {# Tags and date range - collapsed unless one is already active #}
                 <div class="collapse{{ ' show' if has_more_filters else '' }} mt-3" id="moreFilters">
                     <div class="row g-2">
                         <div class="col-md-5">
@@ -60,9 +60,9 @@
                     </div>
                 </div>
             </form>
-            <!-- End Search Form -->
+            {# End Search Form #}
 
-            <!-- Active filter summary - always reflects the last search actually run -->
+            {# Active filter summary - always reflects the last search actually run #}
             <div id="active-filters-bar" class="mt-3 d-none">
                 <small class="text-muted me-2">Filtering by:</small>
                 <span id="active-filters-chips"></span>
@@ -71,7 +71,7 @@
     </div>
 </div>
 
-<script>
+<script nonce="{{ csp_nonce() }}">
 (function () {
     var initialTags = {{ qp.getlist('tags') | tojson }};
 
