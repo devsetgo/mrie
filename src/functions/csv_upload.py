@@ -11,11 +11,12 @@ NO_FILE_MESSAGE = "A non-empty CSV file is required"
 NOT_UTF8_MESSAGE = "The CSV file must be UTF-8 encoded - re-save it as 'CSV UTF-8'"
 
 
-async def read_csv_upload(upload: UploadFile) -> str:
+async def read_csv_upload(upload: UploadFile | None) -> str:
     """Return the upload's text, or raise HTTPException(400).
 
     - No file chosen: a browser still submits the part, with filename=""
-      and no content, and FastAPI accepts it as an UploadFile.
+      and no content. FastAPI 0.165+ turns that into None (older versions
+      passed an empty UploadFile); both mean "no file".
     - utf-8-sig, not utf-8: Excel's "CSV UTF-8" starts with a byte-order
       mark, which plain utf-8 keeps as "\\ufeff" glued to the first header,
       so the import's exact header match finds no known format and does
@@ -24,6 +25,8 @@ async def read_csv_upload(upload: UploadFile) -> str:
       rather than guessed at: a wrong guess would garble the journal text
       that gets imported and encrypted.
     """
+    if upload is None:
+        raise HTTPException(status_code=400, detail=NO_FILE_MESSAGE)
     content = await upload.read()
     if not upload.filename or not content.strip():
         raise HTTPException(status_code=400, detail=NO_FILE_MESSAGE)

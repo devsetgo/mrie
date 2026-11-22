@@ -320,7 +320,9 @@ async def bulk_note_form(
 async def bulk_note(
     background_tasks: BackgroundTasks,
     request: Request,
-    csv_file: UploadFile = File(...),
+    # Optional so an empty file input reaches read_csv_upload() (a 400 page)
+    # instead of FastAPI's raw 422: newer FastAPI drops a filename="" part.
+    csv_file: UploadFile | None = File(None),
     user_info: dict = Depends(check_login),
 ):
     user_identifier = user_info["user_identifier"]
